@@ -1,0 +1,155 @@
+# ===================================================================
+# AWS LocalStack SQS Demo Docker Compose 설정
+# ===================================================================
+# 이 파일은 AWS SQS 서비스를 로컬에서 테스트하기 위한 LocalStack 환경을 구성합니다.
+# 실무 프로젝트에서는 이 설정을 참고하여 필요한 서비스를 추가/수정하세요.
+# ===================================================================
+
+services:
+  # ===================================================================
+  # LocalStack 서비스 - AWS 서비스들의 로컬 시뮬레이터
+  # ===================================================================
+  localstack:
+    image: localstack/localstack:3.4  # 안정적인 버전 사용 권장
+    container_name: localstack
+    ports:
+      - "4566:4566"  # LocalStack의 기본 포트 (모든 AWS 서비스 통합)
+      # 실무에서는 보안을 위해 필요한 포트만 노출하세요
+    environment:
+      # ---------------------------------------------------------------
+      # LocalStack 핵심 설정
+      # ---------------------------------------------------------------
+      - SERVICES=sqs                    # 사용할 AWS 서비스 (sqs,s3,lambda 등)
+      - DEBUG=1                         # 디버그 모드 (운영에서는 0으로 설정)
+      - PERSISTENCE=0                   # 데이터 영속성 (1=활성화, 0=비활성화)
+      - LAMBDA_EXECUTOR=docker          # Lambda 실행 방식
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      
+      # ---------------------------------------------------------------
+      # AWS 인증 설정 (LocalStack용 더미 값)
+      # ---------------------------------------------------------------
+      - AWS_DEFAULT_REGION=ap-northeast-2  # 서울 리전
+      - AWS_ACCESS_KEY_ID=test             # LocalStack용 더미 키
+      - AWS_SECRET_ACCESS_KEY=test         # LocalStack용 더미 시크릿
+      
+      # ---------------------------------------------------------------
+      # 실무 적용 시 고려사항:
+      # - PERSISTENCE=1로 설정하여 데이터 영속성 확보
+      # - DEBUG=0으로 설정하여 성능 향상
+      # - 필요한 서비스만 SERVICES에 명시하여 리소스 절약
+      # ---------------------------------------------------------------
+    volumes:
+      # Docker-in-Docker 지원을 위한 소켓 마운트
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      # 실무에서는 데이터 영속성을 위해 볼륨 추가 고려:
+      # - "./localstack-data:/var/lib/localstack"
+    
+    # ---------------------------------------------------------------
+    # 헬스 체크 설정
+    # ---------------------------------------------------------------
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 30s     # 30초마다 헬스 체크
+      timeout: 10s      # 10초 타임아웃
+      retries: 5        # 5회 재시도
+      start_period: 10s # 시작 후 10초 대기
+
+  # ===================================================================
+  # SQS 초기화 서비스 - 큐와 DLQ 자동 생성
+  # ===================================================================
+  sqs-init:
+    image: amazon/aws-cli:2.15.30  # 공식 AWS CLI 이미지
+    container_name: sqs-init
+    depends_on:
+      localstack:
+        condition: service_healthy  # LocalStack이 준비된 후 실행
+    environment:
+      # LocalStack 연결을 위한 AWS 설정
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test  
+      - AWS_DEFAULT_REGION=ap-northeast-2
+      - AWS_ENDPOINT_URL=http://localstack:4566  # LocalStack 엔드포인트
+    
+    # ---------------------------------------------------------------
+    # SQS 큐 초기화 스크립트 실행
+    # ---------------------------------------------------------------
+    entrypoint: ["/bin/bash", "-c"]
+    volumes:
+      # 별도 스크립트 파일 사용 시 (권장):
+      - "./scripts/init-sqs.sh:/scripts/init-sqs.sh"
+    command:
+      # 스크립트 파일 실행 방식 (확장성이 좋음)
+      - "chmod +x /scripts/init-sqs.sh && /scripts/init-sqs.sh"
+      
+      # ---------------------------------------------------------------
+      # 인라인 스크립트 방식 (단순한 설정용)
+      # ---------------------------------------------------------------
+      # - |
+      #   echo 'SQS 큐 생성 시작...'
+      #   
+      #   # 메인 큐 생성
+      #   aws sqs create-queue --queue-name order-processing-queue --endpoint-url=http://localstack:4566 --region=ap-northeast-2
+      #   
+      #   # DLQ 생성 
+      #   aws sqs create-queue --queue-name order-processing-dlq --endpoint-url=http://localstack:4566 --region=ap-northeast-2
+      #   
+      #   # DLQ ARN 가져오기
+      #   DLQ_ARN=$$(aws sqs get-queue-attributes --queue-url=http://localstack:4566/000000000000/order-processing-dlq --attribute-names QueueArn --endpoint-url=http://localstack:4566 --region=ap-northeast-2 --query 'Attributes.QueueArn' --output text)
+      #   
+      #   # 메인 큐에 DLQ redrive policy 설정
+      #   # maxReceiveCount: 메시지가 몇 번 실패하면 DLQ로 이동할지 설정
+      #   aws sqs set-queue-attributes \
+      #     --queue-url=http://localstack:4566/000000000000/order-processing-queue \
+      #     --attributes '{"RedrivePolicy":"{\"deadLetterTargetArn\":\"'$$DLQ_ARN'\",\"maxReceiveCount\":3}"}' \
+      #     --endpoint-url=http://localstack:4566 \
+      #     --region=ap-northeast-2
+      #   
+      #   echo 'SQS 큐 생성 완료!'
+      #   aws sqs list-queues --endpoint-url=http://localstack:4566 --region=ap-northeast-2
+
+# ===================================================================
+# 볼륨 설정
+# ===================================================================
+volumes:
+  localstack-data:
+    # 실무에서는 데이터 영속성을 위해 외부 볼륨 사용 권장
+    # driver: local
+    # driver_opts:
+    #   type: none
+    #   device: /path/to/persistent/storage
+    #   o: bind
+
+# ===================================================================
+# 네트워크 설정
+# ===================================================================
+networks:
+  default:
+    name: sqs-demo-network
+    # 실무에서는 다른 마이크로서비스와의 통신을 위해
+    # 공통 네트워크 사용 고려:
+    # external: true
+
+# ===================================================================
+# 실무 프로젝트 적용 가이드
+# ===================================================================
+# 
+# 1. 추가 큐 생성 방법:
+#    - scripts/init-sqs.sh 파일에 create_queue_with_dlq 함수 호출 추가
+#    - 예: create_queue_with_dlq "payment-queue" "payment-dlq" 5
+# 
+# 2. 다른 AWS 서비스 추가:
+#    - SERVICES 환경변수에 서비스 추가 (예: sqs,s3,lambda)
+#    - 해당 서비스 초기화 스크립트 작성
+# 
+# 3. 운영 환경 배포 시:
+#    - DEBUG=0으로 변경하여 성능 최적화
+#    - PERSISTENCE=1로 설정하여 데이터 영속성 확보
+#    - 실제 AWS 리소스로 교체
+#    - 보안 그룹 및 IAM 권한 설정
+# 
+# 4. 모니터링 추가:
+#    - CloudWatch 메트릭 수집
+#    - 큐 깊이 및 처리 시간 모니터링
+#    - 알람 설정
+# 
+# ===================================================================

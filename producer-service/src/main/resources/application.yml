@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: producer-service
+  profiles:
+    active: local
+    
+  cloud:
+    aws:
+      credentials:
+        access-key: test
+        secret-key: test
+      region:
+        static: ap-northeast-2
+      sqs:
+        endpoint: http://localhost:4566
+        
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        
+  datasource:
+    url: jdbc:h2:mem:producer-db
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    
+  h2:
+    console:
+      enabled: true
+      
+server:
+  port: 8080
+  
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      
+logging:
+  level:
+    com.demo.producer: DEBUG
+    io.awspring.cloud.sqs: DEBUG
+    
+app:
+  sqs:
+    queue-name: order-processing-queue
+    dlq-name: order-processing-dlq
+    max-retry-attempts: 3
+    
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+      
+  cloud:
+    aws:
+      sqs:
+        endpoint: http://localhost:4566
+        
+logging:
+  level:
+    root: WARN
+    com.demo.producer: DEBUG
