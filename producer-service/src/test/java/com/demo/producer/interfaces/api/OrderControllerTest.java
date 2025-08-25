@@ -79,12 +79,12 @@ class OrderControllerTest {
                 .andDo(print())
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-20231201-123456-ABC12345"))
-                .andExpected(jsonPath("$.customerName").value("홍길동"))
+                .andExpect(jsonPath("$.customerName").value("홍길동"))
                 .andExpect(jsonPath("$.productName").value("테스트 상품"))
                 .andExpect(jsonPath("$.quantity").value(5))
-                .andExpected(jsonPath("$.price").value(10000.00))
+                .andExpect(jsonPath("$.price").value(10000.00))
                 .andExpect(jsonPath("$.totalAmount").value(50000.00))
-                .andExpected(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("PENDING"));
         
         verify(orderService).createOrder(any(CreateOrderRequest.class));
     }
@@ -106,8 +106,8 @@ class OrderControllerTest {
                 .content(objectMapper.writeValueAsString(invalidRequest)))
                 .andDo(print())
                 .andExpect(status().isBadRequest())
-                .andExpected(jsonPath("$.status").value(400))
-                .andExpected(jsonPath("$.error").value("Validation Failed"));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
         
         verifyNoInteractions(orderService);
     }
@@ -123,7 +123,7 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/orders/{orderNumber}", orderNumber))
                 .andDo(print())
                 .andExpect(status().isOk())
-                .andExpected(jsonPath("$.orderNumber").value(orderNumber))
+                .andExpect(jsonPath("$.orderNumber").value(orderNumber))
                 .andExpect(jsonPath("$.customerName").value("홍길동"));
         
         verify(orderService).getOrder(orderNumber);
@@ -140,7 +140,7 @@ class OrderControllerTest {
         // When & Then
         mockMvc.perform(get("/api/orders/{orderNumber}", orderNumber))
                 .andDo(print())
-                .andExpected(status().isNotFound());
+                .andExpect(status().isNotFound());
         
         verify(orderService).getOrder(orderNumber);
     }
@@ -155,8 +155,8 @@ class OrderControllerTest {
         // When & Then
         mockMvc.perform(get("/api/orders"))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$").isArray())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].orderNumber").value("ORD-20231201-123456-ABC12345"));
         
         verify(orderService).getAllOrders();
@@ -174,8 +174,8 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/orders/customer/{customerName}", customerName))
                 .andDo(print())
                 .andExpect(status().isOk())
-                .andExpected(jsonPath("$").isArray())
-                .andExpected(jsonPath("$[0].customerName").value(customerName));
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].customerName").value(customerName));
         
         verify(orderService).getOrdersByCustomerName(customerName);
     }
@@ -191,8 +191,8 @@ class OrderControllerTest {
         // When & Then
         mockMvc.perform(get("/api/orders/status/{status}", status))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$").isArray())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].status").value("PENDING"));
         
         verify(orderService).getOrdersByStatus(status);

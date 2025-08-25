@@ -106,23 +106,23 @@ class ProducerIntegrationTest {
         // When - 생성된 주문 조회
         mockMvc.perform(get("/api/orders/{orderNumber}", orderNumber))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$.orderNumber").value(orderNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderNumber").value(orderNumber))
                 .andExpect(jsonPath("$.customerName").value("홍길동"));
         
         // When - 고객명으로 주문 조회
         mockMvc.perform(get("/api/orders/customer/{customerName}", "홍길동"))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$").isArray())
-                .andExpected(jsonPath("$[0].customerName").value("홍길동"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].customerName").value("홍길동"));
         
         // When - 상태별 주문 조회
         mockMvc.perform(get("/api/orders/status/{status}", OrderStatus.PENDING))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$").isArray())
-                .andExpected(jsonPath("$[0].status").value("PENDING"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].status").value("PENDING"));
     }
     
     @Test
@@ -149,13 +149,13 @@ class ProducerIntegrationTest {
         mockMvc.perform(post("/api/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request1)))
-                .andExpected(status().isCreated());
+                .andExpect(status().isCreated());
         
         // When - 두 번째 주문 생성
         mockMvc.perform(post("/api/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request2)))
-                .andExpected(status().isCreated());
+                .andExpect(status().isCreated());
         
         // Then - DB에 주문들이 저장되었는지 확인
         assertThat(orderRepository.count()).isEqualTo(initialCount + 2);
@@ -163,9 +163,9 @@ class ProducerIntegrationTest {
         // When - 전체 주문 조회
         mockMvc.perform(get("/api/orders"))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$").isArray())
-                .andExpected(jsonPath("$.length()").value((int) (initialCount + 2)));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value((int) (initialCount + 2)));
     }
     
     @Test
@@ -184,10 +184,10 @@ class ProducerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(invalidRequest)))
                 .andDo(print())
-                .andExpected(status().isBadRequest())
-                .andExpected(jsonPath("$.status").value(400))
-                .andExpected(jsonPath("$.error").value("Validation Failed"))
-                .andExpected(jsonPath("$.details").isMap());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Validation Failed"))
+                .andExpect(jsonPath("$.details").isMap());
     }
     
     @Test
@@ -199,7 +199,7 @@ class ProducerIntegrationTest {
         // When & Then
         mockMvc.perform(get("/api/orders/{orderNumber}", nonExistentOrderNumber))
                 .andDo(print())
-                .andExpected(status().isNotFound());
+                .andExpect(status().isNotFound());
     }
     
     @Test
@@ -207,7 +207,7 @@ class ProducerIntegrationTest {
     void healthCheck_ShouldReturnUp() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andDo(print())
-                .andExpected(status().isOk())
-                .andExpected(jsonPath("$.status").value("UP"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 }
