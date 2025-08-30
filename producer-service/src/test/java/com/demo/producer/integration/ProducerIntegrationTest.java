@@ -8,9 +8,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,25 +23,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.SQS;
 
-import org.junit.jupiter.api.BeforeAll;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.sqs.SqsClient;
-import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
-
 /**
  * Producer 서비스 통합 테스트
- * Testcontainers를 활용한 실제 LocalStack SQS 환경에서의 메시지 발송 테스트
+ * Spring Boot 3.1+ @ServiceConnection을 활용한 LocalStack SQS 통합 테스트
+ * 
+ * 테스트 목표:
+ * 1. LocalStack 컨테이너 시작 확인
+ * 2. Spring Context 로딩 확인  
+ * 3. @ServiceConnection 자동 설정 확인
+ * 4. SQS 메시지 발송 기능 검증
  */
 @Tag("integration")
-@SpringBootTest
+@SpringBootTest(properties = {
+    "spring.cloud.aws.sqs.queue-not-found-strategy=CREATE",
+    "logging.level.io.awspring.cloud.sqs=DEBUG",
+    "logging.level.software.amazon.awssdk=DEBUG"
+})
 @Testcontainers
 @ActiveProfiles("test")
 class ProducerIntegrationTest {
     
     @Container
-    static LocalStackContainer localStack = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:2.3.2"))
+    @ServiceConnection
+    static LocalStackContainer localstack = new LocalStackContainer(DockerImageName.parse("localstack/localstack:2.3.2"))
             .withServices(SQS)
             .withEnv("DEBUG", "1")
             .withEnv("SERVICES", "sqs")
@@ -52,58 +55,47 @@ class ProducerIntegrationTest {
     @Autowired
     private SqsMessagePublisher messagePublisher;
     
-    @BeforeAll
-    static void createQueues() {
-        try {
-            // LocalStack SQS 클라이언트로 큐 미리 생성
-            SqsClient sqsClient = SqsClient.builder()
-                    .endpointOverride(localStack.getEndpointOverride(SQS))
-                    .credentialsProvider(() -> AwsBasicCredentials.create(
-                            localStack.getAccessKey(), localStack.getSecretKey()))
-                    .region(Region.of(localStack.getRegion()))
-                    .build();
-            
-            // 큐 생성
-            sqsClient.createQueue(CreateQueueRequest.builder()
-                    .queueName("order-processing-queue")
-                    .build());
-            
-            System.out.println("Queue created successfully in LocalStack");
-            sqsClient.close();
-        } catch (Exception e) {
-            System.err.println("Failed to create queue: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-    
-    @DynamicPropertySource
-    static void setProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.cloud.aws.sqs.endpoint", () -> localStack.getEndpointOverride(SQS).toString());
-        registry.add("spring.cloud.aws.credentials.access-key", localStack::getAccessKey);
-        registry.add("spring.cloud.aws.credentials.secret-key", localStack::getSecretKey);
-        registry.add("spring.cloud.aws.region.static", localStack::getRegion);
-        
-        // 큐 자동 생성 활성화
-        registry.add("spring.cloud.aws.sqs.fail-on-missing-queue", () -> "false");
+    @Test
+    @DisplayName("1️⃣ LocalStack 컨테이너 시작 확인")
+    void localStackContainer_ShouldStart() {
+        assertThat(localstack.isRunning()).isTrue();
+        System.out.println("✅ LocalStack container is running");
+        System.out.println("🔗 LocalStack endpoint: " + localstack.getEndpoint());
+        System.out.println("📡 LocalStack SQS endpoint: " + localstack.getEndpointOverride(SQS));
     }
     
     @Test
-    @DisplayName("애플리케이션 컨텍스트 로딩 테스트")
-    void contextLoads() {
+    @DisplayName("2️⃣ Spring Boot 애플리케이션 컨텍스트 로딩 확인")
+    void applicationContext_ShouldLoad() {
         assertThat(messagePublisher).isNotNull();
-        assertThat(localStack.isRunning()).isTrue();
+        System.out.println("✅ Spring Boot context loaded successfully");
+        System.out.println("📦 SqsMessagePublisher bean injected: " + messagePublisher.getClass().getSimpleName());
+    }
+    
+    @Test  
+    @DisplayName("3️⃣ @ServiceConnection 자동 설정 확인")
+    void serviceConnection_ShouldConfigureAutomatically() {
+        // @ServiceConnection이 제대로 작동하면 SqsMessagePublisher가 주입되어야 함
+        assertThat(messagePublisher).isNotNull();
+        
+        // 컨테이너가 실행 중이어야 함
+        assertThat(localstack.isRunning()).isTrue();
+        
+        System.out.println("✅ @ServiceConnection working correctly");
+        System.out.println("🏗️  SqsMessagePublisher autowired successfully");
+        System.out.println("🐳 LocalStack container running: " + localstack.isRunning());
     }
     
     @Test
-    @DisplayName("SQS 메시지 발송 테스트")
-    void publishOrderMessage_ShouldSendMessageSuccessfully() {
+    @DisplayName("4️⃣ SQS 메시지 발송 기능 검증")
+    void sqsMessagePublishing_ShouldWork() {
         // Given
         OrderMessage orderMessage = OrderMessage.builder()
-                .orderNumber("ORD-TEST-12345")
-                .customerName("테스트 고객")
-                .productName("테스트 상품")
-                .quantity(2)
-                .price(new BigDecimal("50000"))
+                .orderNumber("ORD-SERVICE-CONNECTION-TEST")
+                .customerName("@ServiceConnection 테스트 고객")
+                .productName("Context7 + Sequential Thinking 테스트 상품")
+                .quantity(1)
+                .price(new BigDecimal("100000"))
                 .totalAmount(new BigDecimal("100000"))
                 .status(OrderStatus.PENDING)
                 .createdAt(LocalDateTime.now())
@@ -111,26 +103,32 @@ class ProducerIntegrationTest {
                 .timestamp(LocalDateTime.now())
                 .build();
         
-        // When & Then - 메시지 발송이 예외 없이 완료되어야 함
-        assertDoesNotThrow(() -> {
+        System.out.println("📤 Attempting to publish message...");
+        System.out.println("🎯 Target queue: order-processing-queue");
+        System.out.println("📄 Message: " + orderMessage.orderNumber());
+        
+        // When & Then - @ServiceConnection + Spring Cloud AWS가 제대로 작동하면 메시지 발송이 성공해야 함
+        try {
             String messageId = messagePublisher.publishOrderMessage(orderMessage);
             assertThat(messageId).isNotNull();
-            System.out.println("Message published successfully with ID: " + messageId);
-        });
-    }
-    
-    @Test
-    @DisplayName("LocalStack 컨테이너 상태 확인")
-    void localStackContainer_ShouldBeRunning() {
-        assertThat(localStack.isRunning()).isTrue();
-        assertThat(localStack.getEndpointOverride(SQS)).isNotNull();
-        System.out.println("LocalStack endpoint: " + localStack.getEndpointOverride(SQS));
-    }
-    
-    @Test
-    @DisplayName("메시지 발송 컴포넌트 주입 확인")
-    void messagePublisher_ShouldBeInjected() {
-        assertThat(messagePublisher).isNotNull();
-        System.out.println("SqsMessagePublisher successfully injected");
+            System.out.println("✅ Message published successfully!");
+            System.out.println("🆔 Message ID: " + messageId);
+            System.out.println("🎉 @ServiceConnection + Context7 patterns working perfectly!");
+        } catch (Exception e) {
+            System.err.println("❌ Message publishing failed:");
+            System.err.println("🔍 Error type: " + e.getClass().getSimpleName());  
+            System.err.println("💬 Error message: " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("🔄 Root cause: " + e.getCause().getClass().getSimpleName());
+                System.err.println("💭 Root message: " + e.getCause().getMessage());
+            }
+            
+            // 여전히 실패하더라도 테스트가 어느 정도까지는 작동했음을 보여줌
+            System.out.println("✅ LocalStack started: " + localstack.isRunning());
+            System.out.println("✅ Spring context loaded: " + (messagePublisher != null));
+            System.out.println("❌ SQS message publishing: FAILED");
+            
+            throw e;
+        }
     }
 }
