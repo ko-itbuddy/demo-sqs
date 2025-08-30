@@ -78,6 +78,12 @@ tasks.register('integrationTest', Test) {
     description = 'Runs integration tests.'
     group = 'verification'
     shouldRunAfter test
+    
+    // Colima Docker support
+    systemProperty 'spring.profiles.active', 'test'
+    environment 'DOCKER_HOST', 'unix://' + System.getProperty('user.home') + '/.colima/default/docker.sock'
+    environment 'TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE', '/var/run/docker.sock'
+    systemProperty 'testcontainers.dockersocket.override', System.getProperty('user.home') + '/.colima/default/docker.sock'
 }
 
 check.dependsOn integrationTest
