@@ -35,7 +35,12 @@
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./gradlew integrationTest)",
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker ps)",
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker run --rm -d -p 4566:4566 localstack/localstack:2.3.2)",
-      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker stop fd289ffa9386)"
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker stop fd289ffa9386)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./producer-service/gradlew -p producer-service integrationTest)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker run --rm localstack/localstack:2.3.2 --version)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./producer-service/gradlew -p producer-service integrationTest --info)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker logs cae5ecdc838b --tail=30)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./consumer-service/gradlew -p consumer-service integrationTest)"
     ],
     "deny": [],
     "ask": []

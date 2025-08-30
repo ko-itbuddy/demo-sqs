@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -43,12 +45,28 @@ class ConsumerIntegrationTest {
     @Container
     @ServiceConnection
     static LocalStackContainer localStack = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:2.3.2"))
+            DockerImageName.parse("localstack/localstack:4.4.0"))
             .withServices(SQS)
             .withEnv("DEBUG", "1")
             .withEnv("SERVICES", "sqs")
-            .withEnv("AWS_DEFAULT_REGION", "ap-northeast-2")
+            .withEnv("AWS_DEFAULT_REGION", "eu-west-1")
             .withReuse(false);
+    
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        // Context7 패턴: LocalStack SQS 엔드포인트 동적 설정
+        String sqsEndpoint = localStack.getEndpointOverride(SQS).toString();
+        
+        registry.add("spring.cloud.aws.sqs.endpoint", () -> sqsEndpoint);
+        registry.add("spring.cloud.aws.endpoint", localStack::getEndpoint);
+        registry.add("spring.cloud.aws.region.static", () -> "eu-west-1");
+        registry.add("spring.cloud.aws.credentials.access-key", () -> "test");
+        registry.add("spring.cloud.aws.credentials.secret-key", () -> "test");
+        
+        System.out.println("🔧 Context7 Consumer Dynamic Properties configured:");
+        System.out.println("   📡 SQS Endpoint: " + sqsEndpoint);
+        System.out.println("   🌍 General Endpoint: " + localStack.getEndpoint());
+    }
     
     @Autowired
     private ProcessedOrderRepository processedOrderRepository;
