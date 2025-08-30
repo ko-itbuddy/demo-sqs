@@ -3,6 +3,7 @@ package com.demo.consumer.infrastructure.messaging;
 import com.demo.consumer.application.messaging.dto.OrderMessage;
 import com.demo.consumer.application.processing.OrderProcessingService;
 import io.awspring.cloud.sqs.annotation.SqsListener;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
@@ -18,6 +19,11 @@ import org.springframework.stereotype.Component;
 public class OrderMessageListener {
     
     private final OrderProcessingService orderProcessingService;
+    
+    @PostConstruct
+    private void init() {
+        log.info("OrderMessageListener 초기화 완료 - SQS 메시지 수신 대기 중");
+    }
     
     /**
      * 메인 큐에서 주문 메시지 수신 및 처리

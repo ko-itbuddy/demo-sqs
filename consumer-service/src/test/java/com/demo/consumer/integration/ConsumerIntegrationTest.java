@@ -34,16 +34,23 @@ class ConsumerIntegrationTest {
     
     @Container
     static LocalStackContainer localStack = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:3.4"))
+            DockerImageName.parse("localstack/localstack:2.3.2"))
             .withServices(SQS)
             .withEnv("DEBUG", "1")
-            .withEnv("AWS_DEFAULT_REGION", "ap-northeast-2");
+            .withEnv("SERVICES", "sqs")
+            .withEnv("AWS_DEFAULT_REGION", "ap-northeast-2")
+            .withReuse(false);
     
     @Autowired
     private ProcessedOrderRepository processedOrderRepository;
     
     @BeforeEach
     void setUp() {
+        // LocalStack이 실행 중인지 확인
+        if (!localStack.isRunning()) {
+            localStack.start();
+        }
+        
         // LocalStack 환경 변수 설정
         System.setProperty("spring.cloud.aws.sqs.endpoint", localStack.getEndpointOverride(SQS).toString());
         System.setProperty("spring.cloud.aws.credentials.access-key", localStack.getAccessKey());

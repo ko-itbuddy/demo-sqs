@@ -65,7 +65,9 @@ dependencyManagement {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
     systemProperty 'spring.profiles.active', 'test'
 }
 

@@ -1,7 +1,12 @@
 package com.demo.producer.infrastructure.messaging;
 
 import com.demo.producer.application.order.dto.OrderMessage;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.awspring.cloud.sqs.operations.SqsTemplate;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,9 +25,17 @@ import java.util.UUID;
 public class SqsMessagePublisher {
     
     private final SqsTemplate sqsTemplate;
+    private ObjectMapper objectMapper;
     
     @Value("${app.sqs.queue-name}")
     private String queueName;
+    
+    @PostConstruct
+    private void initObjectMapper() {
+        objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
     
     /**
      * 주문 메시지를 SQS 큐로 발송
@@ -35,8 +48,11 @@ public class SqsMessagePublisher {
             log.info("주문 메시지 발송 시작: orderNumber={}, queueName={}", 
                     orderMessage.orderNumber(), queueName);
             
+            // OrderMessage를 JSON 문자열로 직렬화
+            String jsonPayload = objectMapper.writeValueAsString(orderMessage);
+            
             var message = MessageBuilder
-                    .withPayload(orderMessage)
+                    .withPayload(jsonPayload)
                     .setHeader("messageType", "ORDER_CREATED")
                     .setHeader("orderNumber", orderMessage.orderNumber())
                     .setHeader("customerName", orderMessage.customerName())
@@ -50,6 +66,11 @@ public class SqsMessagePublisher {
             
             return sendResult.messageId().toString();
             
+        } catch (JsonProcessingException e) {
+            log.error("주문 메시지 JSON 직렬화 실패: orderNumber={}, error={}", 
+                    orderMessage.orderNumber(), e.getMessage(), e);
+            throw new MessagePublishException(
+                    "주문 메시지 JSON 직렬화에 실패했습니다: " + orderMessage.orderNumber(), e);
         } catch (Exception e) {
             log.error("주문 메시지 발송 실패: orderNumber={}, error={}", 
                     orderMessage.orderNumber(), e.getMessage(), e);

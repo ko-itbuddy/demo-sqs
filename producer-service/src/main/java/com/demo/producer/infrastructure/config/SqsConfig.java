@@ -40,12 +40,27 @@ public class SqsConfig {
     public SqsAsyncClient sqsAsyncClient() {
         log.info("SQS 클라이언트 초기화: endpoint={}, region={}", sqsEndpoint, region);
         
-        return SqsAsyncClient.builder()
-                .endpointOverride(URI.create(sqsEndpoint))
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(accessKey, secretKey)))
-                .build();
+        try {
+            SqsAsyncClient client = SqsAsyncClient.builder()
+                    .endpointOverride(URI.create(sqsEndpoint))
+                    .region(Region.of(region))
+                    .credentialsProvider(StaticCredentialsProvider.create(
+                            AwsBasicCredentials.create(accessKey, secretKey)))
+                    .build();
+            
+            // SQS 연결 테스트
+            try {
+                client.listQueues().get();
+                log.info("SQS 클라이언트 초기화 성공 - 연결 테스트 통과");
+            } catch (Exception e) {
+                log.warn("SQS 초기 연결 테스트 실패, 실제 사용 시 재시도 됩니다: {}", e.getMessage());
+            }
+            
+            return client;
+        } catch (Exception e) {
+            log.error("SQS 클라이언트 초기화 실패: {}", e.getMessage(), e);
+            throw new IllegalStateException("SQS 클라이언트 초기화에 실패했습니다", e);
+        }
     }
     
     /**

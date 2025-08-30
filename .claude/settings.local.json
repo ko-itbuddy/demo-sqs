@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__activate_project",
+      "mcp__serena__list_dir",
+      "mcp__serena__find_file",
+      "mcp__serena__read_memory",
+      "Bash(./gradlew:*)",
+      "mcp__serena__replace_symbol_body",
+      "mcp__serena__find_symbol",
+      "mcp__serena__get_symbols_overview",
+      "Bash(./producer-service/gradlew:*)",
+      "Bash(./consumer-service/gradlew:*)",
+      "Bash(./test-sqs-system.sh:*)",
+      "Bash(curl:*)",
+      "Bash(./stop-sqs-system.sh:*)",
+      "mcp__serena__write_memory",
+      "Bash(docker-compose down:*)",
+      "Bash(pkill:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

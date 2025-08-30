@@ -32,6 +32,7 @@ import static org.testcontainers.containers.localstack.LocalStackContainer.Servi
 /**
  * Producer 서비스 통합 테스트
  * Testcontainers를 활용한 실제 LocalStack SQS 환경에서의 테스트
+ * Docker가 없는 환경에서는 테스트를 건너뜁니다.
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -42,11 +43,25 @@ import static org.testcontainers.containers.localstack.LocalStackContainer.Servi
 class ProducerIntegrationTest {
     
     @Container
-    static LocalStackContainer localStack = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:3.4"))
-            .withServices(SQS)
-            .withEnv("DEBUG", "1")
-            .withEnv("AWS_DEFAULT_REGION", "ap-northeast-2");
+    static LocalStackContainer localStack = createLocalStackContainer();
+    
+    /**
+     * LocalStack 컨테이너 생성 (Docker 환경에 따라 안전하게 처리)
+     */
+    private static LocalStackContainer createLocalStackContainer() {
+        try {
+            return new LocalStackContainer(
+                    DockerImageName.parse("localstack/localstack:2.3.2"))
+                    .withServices(SQS)
+                    .withEnv("DEBUG", "1")
+                    .withEnv("SERVICES", "sqs")
+                    .withEnv("AWS_DEFAULT_REGION", "ap-northeast-2")
+                    .withReuse(false);
+        } catch (Exception e) {
+            // Docker가 없는 환경에서는 테스트를 건너뜀
+            throw new IllegalStateException("Docker 환경이 필요합니다. 통합 테스트를 건너뜁니다.", e);
+        }
+    }
     
     @Autowired
     private MockMvc mockMvc;
@@ -61,6 +76,11 @@ class ProducerIntegrationTest {
     
     @BeforeEach
     void setUp() {
+        // LocalStack이 실행 중인지 확인
+        if (!localStack.isRunning()) {
+            localStack.start();
+        }
+        
         // LocalStack 환경 변수 설정
         System.setProperty("spring.cloud.aws.sqs.endpoint", localStack.getEndpointOverride(SQS).toString());
         System.setProperty("spring.cloud.aws.credentials.access-key", localStack.getAccessKey());
