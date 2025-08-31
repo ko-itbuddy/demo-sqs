@@ -1,8 +1,10 @@
 package com.demo.consumer.application.processing;
 
 import com.demo.consumer.application.messaging.dto.OrderMessage;
+import com.demo.consumer.application.messaging.dto.SyncEvent;
 import com.demo.consumer.domain.processing.ProcessedOrder;
 import com.demo.consumer.domain.processing.ProcessedOrderRepository;
+import com.demo.consumer.infrastructure.messaging.SyncEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * 주문 처리 애플리케이션 서비스
@@ -22,6 +25,7 @@ import java.util.Random;
 public class OrderProcessingService {
     
     private final ProcessedOrderRepository processedOrderRepository;
+    private final SyncEventPublisher syncEventPublisher;
     private final Random random = new Random();
     
     @Value("${app.sqs.max-retry-attempts}")
@@ -58,6 +62,9 @@ public class OrderProcessingService {
             
             log.info("주문 처리 완료: orderNumber={}, id={}", 
                     processedOrder.getOrderNumber(), processedOrder.getId());
+            
+            // 동기화 이벤트 발송
+            publishProcessingSyncEvent(processedOrder.getOrderNumber());
             
         } catch (Exception e) {
             log.error("주문 처리 중 오류 발생: orderNumber={}, error={}", 
@@ -162,6 +169,22 @@ public class OrderProcessingService {
         log.error("상품명: {}", orderMessage.productName());
         log.error("총금액: {}", orderMessage.totalAmount());
         log.error("========================");
+    }
+    
+    /**
+     * 동기화 이벤트 발송
+     */
+    private void publishProcessingSyncEvent(String orderNumber) {
+        try {
+            var messageId = UUID.randomUUID().toString();
+            var syncEvent = SyncEvent.createProcessingSync(orderNumber, messageId);
+            syncEventPublisher.publishSyncEvent(syncEvent);
+            
+            log.info("처리 완료 동기화 이벤트 발송 완료: orderNumber={}", orderNumber);
+        } catch (Exception e) {
+            log.error("처리 완료 동기화 이벤트 발송 실패: orderNumber={}", orderNumber, e);
+            // 동기화 실패는 비즈니스 로직에 영향 없음
+        }
     }
     
     /**

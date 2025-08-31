@@ -69,8 +69,9 @@ public class OrderMessageListener {
     /**
      * DLQ에서 실패한 메시지 처리
      * 수동으로 처리하거나 알림을 위한 별도 처리
+     * TODO: LocalStack DLQ 연결 문제 해결 후 활성화
      */
-    @SqsListener("${app.sqs.dlq-name}")
+    // @SqsListener("${app.sqs.dlq-name}")
     public void handleDeadLetterMessage(OrderMessage orderMessage, Message<?> sqsMessage) {
         String dlqMessageId = sqsMessage.getHeaders().get("MessageId") != null ? 
                              sqsMessage.getHeaders().get("MessageId").toString() : "unknown";

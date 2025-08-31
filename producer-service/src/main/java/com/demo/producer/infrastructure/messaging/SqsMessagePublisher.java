@@ -47,6 +47,7 @@ public class SqsMessagePublisher {
         try {
             log.info("주문 메시지 발송 시작: orderNumber={}, queueName={}", 
                     orderMessage.orderNumber(), queueName);
+            log.debug("SqsTemplate 객체: {}", sqsTemplate);
             
             // OrderMessage를 JSON 문자열로 직렬화
             String jsonPayload = objectMapper.writeValueAsString(orderMessage);

@@ -57,7 +57,10 @@ app:
   sqs:
     queue-name: order-processing-queue
     dlq-name: order-processing-dlq
+    sync-queue-name: sync-events-queue
     max-retry-attempts: 3
+  client:
+    producer-service-url: http://localhost:8080
     
 ---
 spring:

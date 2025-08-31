@@ -3,10 +3,12 @@ package com.demo.producer.application.order;
 import com.demo.producer.application.order.dto.CreateOrderRequest;
 import com.demo.producer.application.order.dto.OrderMessage;
 import com.demo.producer.application.order.dto.OrderResponse;
+import com.demo.producer.application.order.dto.SyncEvent;
 import com.demo.producer.domain.order.Order;
 import com.demo.producer.domain.order.OrderRepository;
 import com.demo.producer.domain.order.OrderStatus;
 import com.demo.producer.infrastructure.messaging.SqsMessagePublisher;
+import com.demo.producer.infrastructure.messaging.SyncEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class OrderService {
     
     private final OrderRepository orderRepository;
     private final SqsMessagePublisher messagePublisher;
+    private final SyncEventPublisher syncEventPublisher;
     
     /**
      * 새로운 주문을 생성하고 메시지를 발송
@@ -56,17 +59,36 @@ public class OrderService {
                 savedOrder.getOrderNumber(), savedOrder.getId());
         
         // 메시지 발송
+        boolean messagePublished = false;
+        boolean syncEventPublished = false;
+        
         try {
             var messageId = UUID.randomUUID().toString();
             var orderMessage = OrderMessage.from(savedOrder, messageId);
             messagePublisher.publishOrderMessage(orderMessage);
+            messagePublished = true;
             
-            log.info("주문 메시지 발송 완료: orderNumber={}", savedOrder.getOrderNumber());
+            log.info("주문 메시지 발송 완료: orderNumber={}, messageId={}", 
+                    savedOrder.getOrderNumber(), messageId);
+            
         } catch (Exception e) {
-            log.error("주문 메시지 발송 실패하였지만 주문은 생성됨: orderNumber={}", 
-                    savedOrder.getOrderNumber(), e);
+            log.error("주문 메시지 발송 실패: orderNumber={}, errorType={}, errorMessage={}", 
+                    savedOrder.getOrderNumber(), e.getClass().getSimpleName(), e.getMessage(), e);
             // 메시지 발송 실패해도 주문은 이미 생성되어 있으므로 별도 처리 필요
         }
+        
+        // 동기화 이벤트 발송
+        try {
+            publishOrderSyncEvent(savedOrder.getOrderNumber());
+            syncEventPublished = true;
+        } catch (Exception e) {
+            log.error("동기화 이벤트 발송 실패: orderNumber={}, errorType={}, errorMessage={}", 
+                    savedOrder.getOrderNumber(), e.getClass().getSimpleName(), e.getMessage(), e);
+        }
+        
+        // 메시지 발송 상태 로그
+        log.warn("메시지 발송 상태 - orderNumber={}, messagePublished={}, syncEventPublished={}", 
+                savedOrder.getOrderNumber(), messagePublished, syncEventPublished);
         
         return OrderResponse.from(savedOrder);
     }
@@ -109,6 +131,41 @@ public class OrderService {
                 .stream()
                 .map(OrderResponse::from)
                 .toList();
+    }
+    
+    /**
+     * 주문 상태 업데이트 및 동기화 이벤트 발송
+     */
+    @Transactional
+    public OrderResponse updateOrderStatus(String orderNumber, OrderStatus newStatus) {
+        var order = orderRepository.findByOrderNumber(orderNumber)
+                .orElseThrow(() -> new OrderNotFoundException("주문을 찾을 수 없습니다: " + orderNumber));
+        
+        order.updateStatus(newStatus);
+        var updatedOrder = orderRepository.save(order);
+        
+        log.info("주문 상태 업데이트: orderNumber={}, newStatus={}", orderNumber, newStatus);
+        
+        // 동기화 이벤트 발송
+        publishOrderSyncEvent(orderNumber);
+        
+        return OrderResponse.from(updatedOrder);
+    }
+    
+    /**
+     * 동기화 이벤트 발송
+     */
+    private void publishOrderSyncEvent(String orderNumber) {
+        try {
+            var messageId = UUID.randomUUID().toString();
+            var syncEvent = SyncEvent.createOrderSync(orderNumber, messageId);
+            syncEventPublisher.publishSyncEvent(syncEvent);
+            
+            log.info("주문 동기화 이벤트 발송 완료: orderNumber={}", orderNumber);
+        } catch (Exception e) {
+            log.error("주문 동기화 이벤트 발송 실패: orderNumber={}", orderNumber, e);
+            // 동기화 실패는 비즈니스 로직에 영향 없음
+        }
     }
     
     /**

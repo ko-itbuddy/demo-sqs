@@ -4,6 +4,7 @@ import com.demo.consumer.application.messaging.dto.OrderMessage;
 import com.demo.consumer.domain.processing.ProcessedOrder;
 import com.demo.consumer.domain.processing.ProcessedOrderRepository;
 import com.demo.consumer.domain.processing.ProcessingStatus;
+import com.demo.consumer.infrastructure.messaging.SyncEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.*;
 
+import java.util.Random;
+
 /**
  * OrderProcessingService 단위 테스트
  * Consumer 애플리케이션 서비스 계층 로직 검증
@@ -32,6 +35,9 @@ class OrderProcessingServiceTest {
     
     @Mock
     private ProcessedOrderRepository processedOrderRepository;
+    
+    @Mock
+    private SyncEventPublisher syncEventPublisher;
     
     @InjectMocks
     private OrderProcessingService orderProcessingService;
@@ -78,6 +84,12 @@ class OrderProcessingServiceTest {
         // Given
         given(processedOrderRepository.existsByMessageId(messageId)).willReturn(false);
         given(processedOrderRepository.save(any(ProcessedOrder.class))).willReturn(savedProcessedOrder);
+        willDoNothing().given(syncEventPublisher).publishSyncEvent(any());
+        
+        // Random을 Mock하여 항상 성공하도록 설정 (50은 30보다 크므로 성공)
+        Random mockRandom = mock(Random.class);
+        given(mockRandom.nextInt(100)).willReturn(50);
+        ReflectionTestUtils.setField(orderProcessingService, "random", mockRandom);
         
         // When
         assertThatNoException().isThrownBy(() -> 
@@ -158,6 +170,11 @@ class OrderProcessingServiceTest {
                 
         given(processedOrderRepository.save(any(ProcessedOrder.class)))
                 .willReturn(processingOrder);
+        
+        // Random을 Mock하여 항상 실패하도록 설정 (29는 30보다 작으므로 실패)
+        Random mockRandom = mock(Random.class);
+        given(mockRandom.nextInt(100)).willReturn(29);
+        ReflectionTestUtils.setField(orderProcessingService, "random", mockRandom);
         
         // When & Then
         assertThatThrownBy(() -> orderProcessingService.processOrder(validOrderMessage, messageId))
