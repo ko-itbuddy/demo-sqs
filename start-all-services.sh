@@ -114,7 +114,7 @@ show_system_info() {
     echo "# 주문 생성 테스트"
     echo 'curl -X POST http://localhost:8080/api/orders \'
     echo '  -H "Content-Type: application/json" \'
-    echo '  -d '\''{"orderNumber":"TEST-001", "customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":15000.00}'\'''
+    echo '  -d '\''{"customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":15000.00}'\'''
     
     echo -e "\n${YELLOW}유용한 명령어:${NC}"
     echo "# 큐 목록 확인"

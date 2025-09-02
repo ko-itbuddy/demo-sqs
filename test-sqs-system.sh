@@ -100,7 +100,7 @@ test_system() {
     echo "Producer 서비스 테스트 중..."
     response=$(curl -s -X POST http://localhost:8080/api/orders \
         -H "Content-Type: application/json" \
-        -d '{"orderNumber":"TEST-001", "customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":10000.00}' \
+        -d '{"customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":10000.00}' \
         -w "%{http_code}")
     
     if [[ "$response" == *"200" ]] || [[ "$response" == *"201" ]]; then
@@ -131,7 +131,7 @@ run_load_test() {
         for i in {1..10}; do
             curl -s -X POST http://localhost:8080/api/orders \
                 -H "Content-Type: application/json" \
-                -d "{\"orderNumber\":\"LOAD-$i\", \"customerName\":\"부하테스트 고객 $i\", \"productName\":\"부하테스트 상품 $i\", \"quantity\":$i, \"price\":$((i * 5000))}" > /dev/null
+                -d "{\"customerName\":\"부하테스트 고객 $i\", \"productName\":\"부하테스트 상품 $i\", \"quantity\":$i, \"price\":$((i * 5000))}" > /dev/null
             echo "메시지 $i 전송 완료"
         done
         echo -e "${GREEN}✅ 부하 테스트 완료${NC}"
@@ -172,7 +172,7 @@ show_commands() {
     echo "# 메시지 전송"
     echo 'curl -X POST http://localhost:8080/api/orders \\'
     echo '  -H "Content-Type: application/json" \\'
-    echo '  -d '"'"'{"orderNumber":"MANUAL-001", "customerName":"수동 테스트 고객", "productName":"수동 테스트", "quantity":1, "price":25000.00}'"'"
+    echo '  -d '"'"'{"customerName":"수동 테스트 고객", "productName":"수동 테스트", "quantity":1, "price":25000.00}'"'"
     
     echo -e "\n${YELLOW}상태 확인:${NC}"
     echo "# LocalStack 상태"
