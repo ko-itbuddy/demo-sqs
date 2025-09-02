@@ -69,7 +69,7 @@ aws --endpoint-url=http://localhost:4566 sqs list-queues --region ap-northeast-2
 ```bash
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
-  -d '{"orderNumber":"ORDER-001", "productName":"노트북", "quantity":1}'
+  -d '{"orderNumber":"ORDER-001", "customerName":"고객명", "productName":"노트북", "quantity":1, "price":1500000.00}'
 ```
 
 ### 4. 처리 결과 확인
@@ -191,7 +191,7 @@ docker logs -f localstack          # LocalStack 로그
 # 단일 메시지 테스트
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
-  -d '{"orderNumber":"TEST-001", "productName":"테스트 상품", "quantity":1}'
+  -d '{"orderNumber":"TEST-001", "customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":10000.00}'
 ```
 
 ### 부하 테스트
@@ -201,7 +201,7 @@ for i in {1..50}
 do
   curl -X POST http://localhost:8080/api/orders \
     -H "Content-Type: application/json" \
-    -d "{\"orderNumber\":\"LOAD-$i\", \"productName\":\"상품 $i\", \"quantity\":$(($i % 10 + 1))}"
+    -d "{\"orderNumber\":\"LOAD-$i\", \"customerName\":\"고객 $i\", \"productName\":\"상품 $i\", \"quantity\":$(($i % 10 + 1)), \"price\":$((i * 1000))}\"
   echo "메시지 $i 전송 완료"
 done
 ```
@@ -214,7 +214,7 @@ docker stop consumer-service
 # 메시지 전송 (큐에 축적됨)
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
-  -d '{"orderNumber":"FAIL-TEST", "productName":"장애 테스트", "quantity":1}'
+  -d '{"orderNumber":"FAIL-TEST", "customerName":"테스트 고객", "productName":"장애 테스트", "quantity":1, "price":50000.00}'
 
 # Consumer 재시작
 docker start consumer-service
