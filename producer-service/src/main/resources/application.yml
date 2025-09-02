@@ -27,16 +27,13 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
         
   datasource:
-    url: jdbc:h2:mem:producer-db
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
-    
-  h2:
-    console:
-      enabled: true
+    url: jdbc:mysql://localhost:3306/producer_db?useSSL=false&serverTimezone=Asia/Seoul
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: producer
+    password: producer123
       
 server:
   port: 8080
