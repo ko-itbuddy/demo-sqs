@@ -1,6 +1,7 @@
 package com.demo.consumer.application.processing;
 
 import com.demo.consumer.application.messaging.dto.OrderMessage;
+import com.demo.consumer.domain.order.OrderStatus;
 import com.demo.consumer.domain.processing.ProcessedOrder;
 import com.demo.consumer.domain.processing.ProcessedOrderRepository;
 import com.demo.consumer.domain.processing.ProcessingStatus;
@@ -60,7 +61,7 @@ class OrderProcessingServiceTest {
                 .quantity(5)
                 .price(new BigDecimal("10000.00"))
                 .totalAmount(new BigDecimal("50000.00"))
-                .status("PENDING")
+                .status(OrderStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .messageId("original-msg-12345")
                 .timestamp(LocalDateTime.now())

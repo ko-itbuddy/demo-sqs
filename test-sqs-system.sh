@@ -100,7 +100,7 @@ test_system() {
     echo "Producer 서비스 테스트 중..."
     response=$(curl -s -X POST http://localhost:8080/api/orders \
         -H "Content-Type: application/json" \
-        -d '{"orderNumber":"TEST-001", "productName":"테스트 상품", "quantity":1}' \
+        -d '{"orderNumber":"TEST-001", "customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":10000.00}' \
         -w "%{http_code}")
     
     if [[ "$response" == *"200" ]] || [[ "$response" == *"201" ]]; then

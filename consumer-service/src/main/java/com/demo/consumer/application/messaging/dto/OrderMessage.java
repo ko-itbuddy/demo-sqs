@@ -1,5 +1,6 @@
 package com.demo.consumer.application.messaging.dto;
 
+import com.demo.consumer.domain.order.OrderStatus;
 import com.demo.consumer.domain.processing.ProcessedOrder;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -20,7 +21,7 @@ public record OrderMessage(
         @JsonProperty("quantity") Integer quantity,
         @JsonProperty("price") BigDecimal price,
         @JsonProperty("totalAmount") BigDecimal totalAmount,
-        @JsonProperty("status") String status,
+        @JsonProperty("status") OrderStatus status,
         @JsonProperty("createdAt") LocalDateTime createdAt,
         @JsonProperty("messageId") String messageId,
         @JsonProperty("timestamp") LocalDateTime timestamp
@@ -34,7 +35,7 @@ public record OrderMessage(
             @JsonProperty("quantity") Integer quantity,
             @JsonProperty("price") BigDecimal price,
             @JsonProperty("totalAmount") BigDecimal totalAmount,
-            @JsonProperty("status") String status,
+            @JsonProperty("status") OrderStatus status,
             @JsonProperty("createdAt") LocalDateTime createdAt,
             @JsonProperty("messageId") String messageId,
             @JsonProperty("timestamp") LocalDateTime timestamp) {
