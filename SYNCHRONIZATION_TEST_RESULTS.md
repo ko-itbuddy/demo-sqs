@@ -348,184 +348,554 @@ catch (ProducerApiClient.ProducerApiException e) {
 3. **Consumer API 엔드포인트** 추가로 동기화된 데이터 조회 기능
 4. **종합적인 통합 테스트** 작성
 
-## 📋 완전한 동기화 검증 시나리오
+## 🚀 완전한 API 시나리오 테스트 가이드
 
-### 🔄 Step-by-Step 검증 과정
+### 📊 전체 API 엔드포인트 매트릭스
 
-이 섹션에서는 주문 생성부터 완전한 동기화까지의 전체 프로세스를 단계별로 검증하는 과정을 보여줍니다.
+#### Producer Service APIs (포트 8080)
+| 분류 | Method | 엔드포인트 | 설명 | 테스트 시나리오 |
+|------|--------|-----------|------|----------------|
+| **주문 관리** | POST | `/api/orders` | 주문 생성 | ✅ 기본 시나리오 |
+| **주문 조회** | GET | `/api/orders/{orderNumber}` | 개별 주문 조회 | ✅ 존재/비존재 케이스 |
+| **전체 조회** | GET | `/api/orders` | 전체 주문 목록 | ✅ 페이징/필터링 |
+| **고객별 조회** | GET | `/api/orders/customer/{customerName}` | 고객별 주문 목록 | ✅ 한글/영문/특수문자 |
+| **상태별 조회** | GET | `/api/orders/status/{status}` | 상태별 주문 목록 | ✅ 모든 상태값 |
+| **동기화 조회** | GET | `/api/sync/order/{orderNumber}` | 동기화용 주문 조회 | ✅ 동기화 검증 |
+| **동기화 헬스** | GET | `/api/sync/health` | 동기화 API 상태 | ✅ 가용성 검사 |
+| **시스템 헬스** | GET | `/actuator/health` | 시스템 상태 | ✅ 모니터링 |
 
-#### 1단계: 초기 데이터 상태 확인
+#### Consumer Service APIs (포트 8081)
+| 분류 | Method | 엔드포인트 | 설명 | 테스트 시나리오 |
+|------|--------|-----------|------|----------------|
+| **처리된 주문** | GET | `/api/sync/processed-order/{orderNumber}` | 처리 완료 주문 조회 | ✅ 처리 상태 검증 |
+| **동기화 헬스** | GET | `/api/sync/health` | Consumer 동기화 상태 | ✅ 서비스 연결성 |
+| **시스템 헬스** | GET | `/actuator/health` | Consumer 시스템 상태 | ✅ 전체 상태 |
 
-**Producer 서비스 전체 주문 확인**
+#### Infrastructure APIs
+| 분류 | Method | 엔드포인트 | 설명 | 테스트 시나리오 |
+|------|--------|-----------|------|----------------|
+| **LocalStack** | GET | `http://localhost:4566/_localstack/health` | LocalStack 상태 | ✅ 인프라 확인 |
+| **SQS 큐 목록** | AWS CLI | `aws sqs list-queues` | SQS 큐 목록 | ✅ 큐 존재 확인 |
+| **SQS 메트릭** | AWS CLI | `aws sqs get-queue-attributes` | 큐 통계 | ✅ 메시지 수량 |
+
+### 🎯 종합 테스트 시나리오
+
+#### 시나리오 1: 기본 주문 생성 및 전체 플로우 검증
+
+**1.1 환경 준비 및 초기 상태 확인**
 ```bash
-# Producer의 현재 주문 목록 조회
-curl -s http://localhost:8080/api/orders | jq '.'
-```
+echo "🔍 === 환경 준비 및 초기 상태 확인 ==="
 
-**Consumer 서비스 상태 확인**
-```bash
-# Consumer 동기화 API 헬스체크
+# LocalStack 상태 확인
+echo "📡 LocalStack 연결 확인:"
+curl -s http://localhost:4566/_localstack/health | jq '.'
+
+# Producer 서비스 상태 확인
+echo "🏭 Producer 서비스 상태:"
+curl -s http://localhost:8080/actuator/health | jq '.'
+
+# Consumer 서비스 상태 확인  
+echo "🔄 Consumer 서비스 상태:"
+curl -s http://localhost:8081/actuator/health | jq '.'
+
+# 동기화 API 상태 확인
+echo "🔗 Producer 동기화 API:"
+curl -s http://localhost:8080/api/sync/health
+
+echo "🔗 Consumer 동기화 API:"
 curl -s http://localhost:8081/api/sync/health
+
+# SQS 큐 존재 확인
+echo "📨 SQS 큐 목록:"
+aws --endpoint-url=http://localhost:4566 sqs list-queues --region ap-northeast-2 | jq '.'
+
+# 큐별 현재 메시지 수 확인
+echo "📊 order-processing-queue 메시지 수:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.'
+
+echo "📊 sync-events-queue 메시지 수:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.'
+
+# Producer 초기 주문 현황
+echo "📋 Producer 초기 주문 목록:"
+curl -s http://localhost:8080/api/orders | jq '. | length as $count | {total_orders: $count, orders: .}'
 ```
 
-#### 2단계: 주문 생성 및 즉시 확인
-
-**주문 생성 요청**
+**1.2 주문 생성 및 즉시 검증**
 ```bash
-# 새로운 주문 생성 (orderNumber는 응답으로 받음)
-curl -X POST http://localhost:8080/api/orders \
+echo "🚀 === 주문 생성 및 즉시 검증 ==="
+
+# 주문 생성
+echo "📝 주문 생성 요청:"
+ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "customerName": "동기화검증고객", 
-    "productName": "완전동기화테스트상품", 
-    "quantity": 3, 
-    "price": 75000.00
-  }' | jq '.'
-```
+    "customerName": "종합테스트고객",
+    "productName": "완전검증테스트상품", 
+    "quantity": 5,
+    "price": 99000.00
+  }')
 
-**예상 응답**
-```json
-{
-  "id": 3,
-  "orderNumber": "ORD-20250902-143022-ABC123EF",
-  "customerName": "동기화검증고객",
-  "productName": "완전동기화테스트상품", 
-  "quantity": 3,
-  "price": 75000.00,
-  "totalAmount": 225000.00,
-  "status": "PENDING",
-  "statusDescription": "대기중",
-  "createdAt": "2025-09-02T14:30:22.123456",
-  "updatedAt": null
-}
-```
+echo $ORDER_RESPONSE | jq '.'
 
-#### 3단계: Producer 측 데이터 확인
+# orderNumber 추출
+ORDER_NUM=$(echo $ORDER_RESPONSE | jq -r '.orderNumber')
+CUSTOMER_NAME=$(echo $ORDER_RESPONSE | jq -r '.customerName')
+echo "🏷️  생성된 주문번호: $ORDER_NUM"
+echo "👤 고객명: $CUSTOMER_NAME"
 
-**🎯 응답에서 받은 orderNumber로 변수 설정**
-```bash
-# 실제 응답에서 받은 orderNumber로 교체하세요
-ORDER_NUM="ORD-20250902-143022-ABC123EF"
-```
-
-**개별 주문 조회**
-```bash
-# Producer에서 방금 생성된 주문 조회
+# 생성 직후 Producer 데이터 확인
+echo "🔍 Producer 개별 주문 조회:"
 curl -s "http://localhost:8080/api/orders/$ORDER_NUM" | jq '.'
-```
 
-**동기화 전용 API로 조회**
-```bash
-# Producer 동기화 API로 주문 정보 조회
+echo "🔍 Producer 동기화 API로 조회:"
 curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '.'
-```
 
-**상태별 주문 조회**
-```bash
-# PENDING 상태 주문들 확인 (방금 생성한 주문 포함되어야 함)
+echo "🔍 전체 주문 목록에서 확인:"
+curl -s http://localhost:8080/api/orders | jq --arg order "$ORDER_NUM" '.[] | select(.orderNumber == $order)'
+
+echo "🔍 고객별 주문 조회:"
+curl -s "http://localhost:8080/api/orders/customer/$CUSTOMER_NAME" | jq '.'
+
+echo "🔍 PENDING 상태 주문들:"
 curl -s http://localhost:8080/api/orders/status/PENDING | jq '.'
 ```
 
-#### 4단계: Consumer 처리 대기 및 확인 (10-30초 후)
-
-**처리 대기**
+**1.3 SQS 메시지 발송 확인**
 ```bash
-echo "Consumer가 메시지를 처리할 때까지 30초 대기..."
-sleep 30
+echo "📨 === SQS 메시지 발송 확인 ==="
+
+# 메시지 발송 후 큐 상태 확인
+echo "📊 order-processing-queue 메시지 수 (발송 후):"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes'
+
+echo "📊 sync-events-queue 메시지 수 (발송 후):"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes'
+
+# 잠시 대기 (메시지 처리 시간)
+echo "⏳ Consumer 메시지 처리 대기 (10초)..."
+sleep 10
 ```
 
-**Consumer 처리 결과 확인**
+**1.4 Consumer 처리 중간 확인**
 ```bash
-# Consumer에서 처리된 주문 데이터 조회
-curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '.'
+echo "🔄 === Consumer 처리 상태 확인 ==="
+
+# Consumer에서 처리된 주문 확인 시도
+echo "🔍 Consumer 처리 결과 조회 (1차):"
+CONSUMER_RESPONSE=$(curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM")
+echo $CONSUMER_RESPONSE | jq '.'
+
+# 처리되지 않았다면 추가 대기
+if echo $CONSUMER_RESPONSE | jq -e '.orderNumber' > /dev/null 2>&1; then
+    echo "✅ Consumer 처리 완료 확인"
+else
+    echo "⏳ Consumer 처리 중... 추가 20초 대기"
+    sleep 20
+    
+    echo "🔍 Consumer 처리 결과 조회 (2차):"
+    curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '.'
+fi
+
+# 메시지 처리 후 큐 상태 재확인
+echo "📊 처리 후 큐 상태:"
+echo "  - order-processing-queue:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes.ApproximateNumberOfMessages'
+
+echo "  - sync-events-queue:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes.ApproximateNumberOfMessages'
 ```
 
-**예상 Consumer 응답**
-```json
-{
-  "orderNumber": "ORD-20250902-143022-ABC123EF",
-  "customerName": "동기화검증고객",
-  "productName": "완전동기화테스트상품",
-  "quantity": 3,
-  "price": 75000.00,
-  "totalAmount": 225000.00,
-  "processingStatus": "COMPLETED",
-  "processedAt": "2025-09-02T14:30:52.987654",
-  "messageId": "sqs-message-id-12345"
-}
-```
-
-#### 5단계: 동기화 완료 후 Producer 데이터 재확인
-
-**Producer 주문 상태 재확인**
+**1.5 동기화 완료 후 최종 검증**
 ```bash
-# 동기화 후 Producer의 주문 상태 확인 (상태 변경 가능성)
-curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '.'
-```
+echo "✅ === 동기화 완료 후 최종 검증 ==="
 
-**전체 주문 목록에서 상태 확인**
-```bash
-# 전체 주문 목록에서 해당 주문의 최종 상태 확인
-curl -s http://localhost:8080/api/orders | jq --arg order "$ORDER_NUM" '.[] | select(.orderNumber == $order)'
-```
-
-#### 6단계: 양방향 동기화 완전성 검증
-
-**Producer와 Consumer 데이터 동시 비교**
-```bash
-echo "=== 🔍 동기화 완전성 검증 ==="
-echo ""
-
-echo "📊 Producer 데이터:"
+# Producer 데이터 재확인
+echo "🔍 Producer 최종 데이터:"
 curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '{
   orderNumber,
   customerName,
+  productName,
   status,
+  statusDescription,
   totalAmount,
   createdAt,
   updatedAt
 }'
 
-echo ""
-echo "📊 Consumer 데이터:"
+# Consumer 최종 데이터 확인
+echo "🔍 Consumer 최종 데이터:"
 curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '{
   orderNumber,
   customerName,
+  productName,
   processingStatus,
   totalAmount,
-  processedAt
+  processedAt,
+  messageId
 }'
 
-echo ""
-echo "✅ 동기화 검증 완료!"
+# 양방향 데이터 일관성 검증
+echo "🔗 양방향 데이터 일관성 검증:"
+PRODUCER_DATA=$(curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM")
+CONSUMER_DATA=$(curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM")
+
+PRODUCER_TOTAL=$(echo $PRODUCER_DATA | jq -r '.totalAmount // "null"')
+CONSUMER_TOTAL=$(echo $CONSUMER_DATA | jq -r '.totalAmount // "null"')
+
+if [ "$PRODUCER_TOTAL" = "$CONSUMER_TOTAL" ] && [ "$PRODUCER_TOTAL" != "null" ]; then
+    echo "✅ 금액 일관성 검증 통과: $PRODUCER_TOTAL"
+else
+    echo "❌ 금액 일관성 검증 실패: Producer=$PRODUCER_TOTAL, Consumer=$CONSUMER_TOTAL"
+fi
+
+PRODUCER_CUSTOMER=$(echo $PRODUCER_DATA | jq -r '.customerName // "null"')
+CONSUMER_CUSTOMER=$(echo $CONSUMER_DATA | jq -r '.customerName // "null"')
+
+if [ "$PRODUCER_CUSTOMER" = "$CONSUMER_CUSTOMER" ] && [ "$PRODUCER_CUSTOMER" != "null" ]; then
+    echo "✅ 고객명 일관성 검증 통과: $PRODUCER_CUSTOMER"
+else
+    echo "❌ 고객명 일관성 검증 실패: Producer=$PRODUCER_CUSTOMER, Consumer=$CONSUMER_CUSTOMER"
+fi
 ```
 
-#### 7단계: 고객별/상태별 조회로 최종 검증
+#### 시나리오 2: 대량 주문 및 성능 검증
 
-**고객별 주문 조회**
+**2.1 대량 주문 생성 스크립트**
 ```bash
-# 해당 고객의 모든 주문 조회 (방금 생성한 주문 포함 확인)
-curl -s http://localhost:8080/api/orders/customer/동기화검증고객 | jq '.'
+echo "🚀 === 대량 주문 생성 및 성능 검증 ==="
+
+# 초기 상태 기록
+INITIAL_COUNT=$(curl -s http://localhost:8080/api/orders | jq 'length')
+echo "📊 초기 주문 수: $INITIAL_COUNT"
+
+# 10개 주문 연속 생성
+echo "📝 10개 주문 연속 생성 시작..."
+CREATED_ORDERS=()
+
+for i in {1..10}; do
+  echo "주문 생성 $i/10..."
+  RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"customerName\": \"대량테스트고객$i\",
+      \"productName\": \"대량테스트상품$i\",
+      \"quantity\": $i,
+      \"price\": $((i * 15000)).00
+    }")
+  
+  ORDER_NUM=$(echo $RESPONSE | jq -r '.orderNumber')
+  CREATED_ORDERS+=($ORDER_NUM)
+  echo "  ✅ 생성완료: $ORDER_NUM"
+  
+  # 요청 간 간격 (시스템 부하 방지)
+  sleep 2
+done
+
+echo "🎯 생성된 주문 목록:"
+printf '%s\n' "${CREATED_ORDERS[@]}"
 ```
 
-**완료된 주문들 조회**
+**2.2 대량 처리 대기 및 모니터링**
 ```bash
-# COMPLETED 상태 주문들 확인 (동기화 완료 시 포함될 수 있음)
-curl -s http://localhost:8080/api/orders/status/COMPLETED | jq '.'
-```
+echo "⏳ === 대량 처리 대기 및 모니터링 ==="
 
-**SQS 큐 상태 확인**
-```bash
-# SQS 큐의 메시지 처리 상황 확인
-aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+# SQS 큐 상태 확인 (처리 전)
+echo "📊 SQS 큐 상태 (처리 전):"
+ORDER_QUEUE_MESSAGES=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
   --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
   --attribute-names ApproximateNumberOfMessages \
-  --region ap-northeast-2
+  --region ap-northeast-2 | jq -r '.Attributes.ApproximateNumberOfMessages')
 
-aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+SYNC_QUEUE_MESSAGES=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
   --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
   --attribute-names ApproximateNumberOfMessages \
-  --region ap-northeast-2
+  --region ap-northeast-2 | jq -r '.Attributes.ApproximateNumberOfMessages')
+
+echo "  - order-processing-queue: $ORDER_QUEUE_MESSAGES 개"
+echo "  - sync-events-queue: $SYNC_QUEUE_MESSAGES 개"
+
+# 60초 대기 (대량 처리 시간)
+echo "⏳ Consumer 대량 처리 대기 (60초)..."
+sleep 60
+
+# SQS 큐 상태 재확인 (처리 후)
+echo "📊 SQS 큐 상태 (처리 후):"
+ORDER_QUEUE_AFTER=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq -r '.Attributes.ApproximateNumberOfMessages')
+
+SYNC_QUEUE_AFTER=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq -r '.Attributes.ApproximateNumberOfMessages')
+
+echo "  - order-processing-queue: $ORDER_QUEUE_AFTER 개"
+echo "  - sync-events-queue: $SYNC_QUEUE_AFTER 개"
+```
+
+**2.3 대량 처리 결과 검증**
+```bash
+echo "✅ === 대량 처리 결과 검증 ==="
+
+# 생성된 모든 주문 검증
+PROCESSED_COUNT=0
+FAILED_COUNT=0
+
+for ORDER_NUM in "${CREATED_ORDERS[@]}"; do
+  # Producer 데이터 확인
+  PRODUCER_DATA=$(curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM")
+  
+  # Consumer 데이터 확인
+  CONSUMER_DATA=$(curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM")
+  
+  if echo $CONSUMER_DATA | jq -e '.orderNumber' > /dev/null 2>&1; then
+    echo "  ✅ $ORDER_NUM: 동기화 완료"
+    ((PROCESSED_COUNT++))
+  else
+    echo "  ❌ $ORDER_NUM: 동기화 실패 또는 미완료"
+    ((FAILED_COUNT++))
+  fi
+done
+
+echo ""
+echo "📊 대량 처리 결과:"
+echo "  - 총 생성: ${#CREATED_ORDERS[@]}개"
+echo "  - 처리 완료: $PROCESSED_COUNT개"
+echo "  - 실패/미완료: $FAILED_COUNT개"
+echo "  - 성공률: $(( PROCESSED_COUNT * 100 / ${#CREATED_ORDERS[@]} ))%"
+
+# 전체 주문 수 재확인
+FINAL_COUNT=$(curl -s http://localhost:8080/api/orders | jq 'length')
+echo "  - 최종 주문 수: $FINAL_COUNT (증가: $(( FINAL_COUNT - INITIAL_COUNT )))"
+```
+
+#### 시나리오 3: 에러 시나리오 및 예외 상황 테스트
+
+**3.1 잘못된 데이터로 주문 생성 (Validation 테스트)**
+```bash
+echo "❌ === 에러 시나리오 테스트 ==="
+
+echo "📝 필수 필드 누락 테스트:"
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productName": "필수필드누락상품",
+    "quantity": 1,
+    "price": 10000.00
+  }' | jq '.'
+
+echo "📝 음수 값 테스트:"
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "음수테스트고객",
+    "productName": "음수테스트상품",
+    "quantity": -1,
+    "price": -5000.00
+  }' | jq '.'
+
+echo "📝 잘못된 데이터 타입 테스트:"
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "타입테스트고객",
+    "productName": "타입테스트상품",
+    "quantity": "문자열",
+    "price": "잘못된값"
+  }' | jq '.'
+```
+
+**3.2 존재하지 않는 리소스 조회 (404 테스트)**
+```bash
+echo "🔍 === 404 에러 테스트 ==="
+
+echo "📝 존재하지 않는 주문번호 조회:"
+curl -s -w "HTTP Status: %{http_code}\n" \
+  "http://localhost:8080/api/orders/INVALID-ORDER-12345" | jq '.'
+
+echo "📝 Consumer에서 존재하지 않는 주문 조회:"
+curl -s -w "HTTP Status: %{http_code}\n" \
+  "http://localhost:8081/api/sync/processed-order/INVALID-ORDER-12345" | jq '.'
+
+echo "📝 존재하지 않는 고객명 조회:"
+curl -s "http://localhost:8080/api/orders/customer/존재하지않는고객" | jq '.'
+
+echo "📝 동기화 API로 존재하지 않는 주문 조회:"
+curl -s -w "HTTP Status: %{http_code}\n" \
+  "http://localhost:8080/api/sync/order/INVALID-ORDER-12345" | jq '.'
+```
+
+**3.3 잘못된 OrderStatus 테스트**
+```bash
+echo "📝 잘못된 주문 상태로 조회:"
+curl -s -w "HTTP Status: %{http_code}\n" \
+  "http://localhost:8080/api/orders/status/INVALID_STATUS" | jq '.'
+
+echo "📝 유효한 OrderStatus 값들:"
+for STATUS in PENDING PROCESSING COMPLETED FAILED; do
+  echo "  - $STATUS:"
+  curl -s "http://localhost:8080/api/orders/status/$STATUS" | jq 'length as $count | "주문 수: \($count)"'
+done
+```
+
+#### 시나리오 4: 특수 문자 및 다국어 테스트
+
+**4.1 한글 및 특수문자 테스트**
+```bash
+echo "🌏 === 한글 및 특수문자 테스트 ==="
+
+echo "📝 한글 고객명 및 상품명 테스트:"
+KOREAN_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "김철수",
+    "productName": "삼성 갤럭시 S24 Ultra",
+    "quantity": 1,
+    "price": 1500000.00
+  }')
+
+KOREAN_ORDER=$(echo $KOREAN_RESPONSE | jq -r '.orderNumber')
+echo "✅ 한글 주문 생성: $KOREAN_ORDER"
+
+# 한글 고객명으로 조회
+echo "📝 한글 고객명으로 주문 조회:"
+curl -s "http://localhost:8080/api/orders/customer/김철수" | jq '.'
+
+echo "📝 특수문자 포함 테스트:"
+SPECIAL_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "John O'\''Connor & 김영희",
+    "productName": "Apple MacBook Pro 16\" (M3 Max)",
+    "quantity": 2,
+    "price": 3500000.00
+  }')
+
+SPECIAL_ORDER=$(echo $SPECIAL_RESPONSE | jq -r '.orderNumber')
+echo "✅ 특수문자 주문 생성: $SPECIAL_ORDER"
+```
+
+**4.2 URL 인코딩 테스트**
+```bash
+echo "🔗 === URL 인코딩 테스트 ==="
+
+# URL 인코딩이 필요한 고객명으로 조회
+echo "📝 공백 포함 고객명 조회:"
+curl -s "http://localhost:8080/api/orders/customer/John%20O%27Connor%20%26%20%EA%B9%80%EC%98%81%ED%9D%AC" | jq '.'
+
+echo "📝 공백을 그대로 사용한 경우:"
+curl -s "http://localhost:8080/api/orders/customer/John O'Connor & 김영희" | jq '.'
+```
+
+#### 시나리오 5: 시스템 상태 및 모니터링 전체 검증
+
+**5.1 모든 헬스체크 엔드포인트 검증**
+```bash
+echo "🏥 === 전체 시스템 헬스체크 ==="
+
+echo "📡 LocalStack 헬스체크:"
+curl -s http://localhost:4566/_localstack/health | jq '.services'
+
+echo "🏭 Producer 시스템 헬스체크:"
+curl -s http://localhost:8080/actuator/health | jq '.'
+
+echo "🔄 Consumer 시스템 헬스체크:"
+curl -s http://localhost:8081/actuator/health | jq '.'
+
+echo "🔗 Producer 동기화 API 헬스체크:"
+curl -s http://localhost:8080/api/sync/health
+
+echo "🔗 Consumer 동기화 API 헬스체크:"
+curl -s http://localhost:8081/api/sync/health
+```
+
+**5.2 전체 데이터 현황 요약**
+```bash
+echo "📊 === 전체 시스템 데이터 현황 ==="
+
+echo "📋 Producer 전체 주문 요약:"
+curl -s http://localhost:8080/api/orders | jq '{
+  total_orders: length,
+  by_status: group_by(.status) | map({status: .[0].status, count: length}) | from_entries,
+  total_amount: map(.totalAmount) | add
+}'
+
+echo "📋 상태별 주문 분포:"
+for STATUS in PENDING PROCESSING COMPLETED FAILED; do
+  COUNT=$(curl -s "http://localhost:8080/api/orders/status/$STATUS" | jq 'length')
+  echo "  - $STATUS: $COUNT개"
+done
+
+echo "📋 SQS 큐 현재 상태:"
+echo "  - order-processing-queue:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes'
+
+echo "  - sync-events-queue:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes'
+```
+
+#### 시나리오 6: 극한 상황 및 스트레스 테스트
+
+**6.1 고객명 길이 제한 테스트**
+```bash
+echo "🔬 === 극한 상황 테스트 ==="
+
+echo "📝 긴 고객명 테스트 (100자):"
+LONG_NAME="아주아주아주아주아주아주아주아주아주아주긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴긴고객명테스트"
+curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"customerName\": \"$LONG_NAME\",
+    \"productName\": \"긴이름테스트상품\",
+    \"quantity\": 1,
+    \"price\": 50000.00
+  }" | jq '.'
+
+echo "📝 최대 수량 테스트:"
+curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "최대수량테스트고객",
+    "productName": "최대수량테스트상품",
+    "quantity": 999999,
+    "price": 1.00
+  }' | jq '.'
+
+echo "📝 최대 가격 테스트:"
+curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "최대가격테스트고객",
+    "productName": "최대가격테스트상품",
+    "quantity": 1,
+    "price": 99999999.99
+  }' | jq '.'
 ```
 
 ### 📊 검증 체크리스트
@@ -542,46 +912,235 @@ aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
 - [ ] **양방향 데이터 일관성** ✅ Producer/Consumer 데이터 비교
 - [ ] **전체 플로우 완료** ✅ 모든 API 응답 정상
 
-### 🔄 반복 테스트 스크립트
+### 🔄 완전한 테스트 매트릭스
 
-여러 주문을 연속으로 생성하여 동기화 안정성 테스트:
+#### 전체 API 엔드포인트 검증 매트릭스
 
+| 시나리오 분류 | API 엔드포인트 | 테스트 케이스 | 예상 결과 | 검증 방법 |
+|-------------|---------------|-------------|----------|----------|
+| **기본 주문 흐름** | `POST /api/orders` | 정상 주문 생성 | HTTP 201, orderNumber 생성 | Response JSON 검증 |
+| | `GET /api/orders/{orderNumber}` | 생성된 주문 조회 | HTTP 200, 주문 정보 반환 | 데이터 일치성 검증 |
+| | `GET /api/sync/processed-order/{orderNumber}` | Consumer 처리 확인 | HTTP 200, 처리 완료 데이터 | 30초 후 검증 |
+| **데이터 조회** | `GET /api/orders` | 전체 주문 목록 | HTTP 200, 배열 반환 | length 값 확인 |
+| | `GET /api/orders/customer/{name}` | 고객별 주문 조회 | HTTP 200, 필터링된 결과 | customerName 일치 검증 |
+| | `GET /api/orders/status/{status}` | 상태별 주문 조회 | HTTP 200, 상태별 필터링 | status 필드 일치 검증 |
+| **동기화 API** | `GET /api/sync/order/{orderNumber}` | Producer 동기화 데이터 | HTTP 200, 주문 정보 | Consumer 데이터와 비교 |
+| | `GET /api/sync/health` | 동기화 API 상태 | HTTP 200, "running" 메시지 | 문자열 포함 검증 |
+| **시스템 상태** | `GET /actuator/health` | 서비스 헬스체크 | HTTP 200, status UP | JSON status 필드 검증 |
+| **에러 처리** | `POST /api/orders` (누락 필드) | Validation 에러 | HTTP 400, 에러 메시지 | 에러 응답 구조 검증 |
+| | `GET /api/orders/{invalid}` | 404 에러 | HTTP 404, 에러 메시지 | HTTP 상태코드 검증 |
+| | `GET /api/orders/status/{invalid}` | 잘못된 상태값 | HTTP 400/500, 에러 메시지 | 예외 처리 검증 |
+
+#### 통합 테스트 실행 스크립트
+
+**전체 시나리오 통합 실행**
 ```bash
 #!/bin/bash
-echo "🚀 연속 동기화 테스트 시작"
+echo "🚀 === 전체 API 검증 통합 테스트 ==="
 
-for i in {1..5}; do
+# 테스트 결과 추적
+TOTAL_TESTS=0
+PASSED_TESTS=0
+FAILED_TESTS=0
+
+# 테스트 함수
+run_test() {
+  local test_name="$1"
+  local test_command="$2"
+  local expected_pattern="$3"
+  
   echo ""
-  echo "=== 테스트 $i/5 ==="
+  echo "🧪 테스트: $test_name"
+  ((TOTAL_TESTS++))
   
-  # 주문 생성
-  RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"customerName\": \"테스트고객$i\",
-      \"productName\": \"연속테스트상품$i\",
-      \"quantity\": $i,
-      \"price\": $((i * 10000)).00
-    }")
+  RESULT=$(eval "$test_command" 2>&1)
   
-  ORDER_NUM=$(echo $RESPONSE | jq -r '.orderNumber')
-  echo "✅ 주문 생성: $ORDER_NUM"
-  
-  # 30초 대기 후 Consumer 확인
-  sleep 30
-  
-  # 동기화 확인
-  CONSUMER_DATA=$(curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM")
-  if echo $CONSUMER_DATA | jq -e '.orderNumber' > /dev/null; then
-    echo "✅ Consumer 동기화 완료: $ORDER_NUM"
+  if echo "$RESULT" | grep -q "$expected_pattern"; then
+    echo "  ✅ 통과"
+    ((PASSED_TESTS++))
   else
-    echo "❌ Consumer 동기화 실패: $ORDER_NUM"
+    echo "  ❌ 실패"
+    echo "    명령어: $test_command"
+    echo "    결과: $RESULT"
+    echo "    예상: $expected_pattern"
+    ((FAILED_TESTS++))
   fi
-done
+}
+
+echo "📊 === 시스템 상태 검증 ==="
+run_test "LocalStack 헬스체크" \
+  "curl -s http://localhost:4566/_localstack/health" \
+  "running"
+
+run_test "Producer 헬스체크" \
+  "curl -s http://localhost:8080/actuator/health" \
+  "UP"
+
+run_test "Consumer 헬스체크" \
+  "curl -s http://localhost:8081/actuator/health" \
+  "UP"
+
+run_test "Producer 동기화 API 헬스체크" \
+  "curl -s http://localhost:8080/api/sync/health" \
+  "running"
+
+run_test "Consumer 동기화 API 헬스체크" \
+  "curl -s http://localhost:8081/api/sync/health" \
+  "running"
 
 echo ""
-echo "🎉 연속 동기화 테스트 완료"
+echo "📝 === 기본 주문 생성 및 조회 검증 ==="
+
+# 테스트용 주문 생성
+ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "통합테스트고객",
+    "productName": "통합테스트상품",
+    "quantity": 1,
+    "price": 25000.00
+  }')
+
+ORDER_NUM=$(echo $ORDER_RESPONSE | jq -r '.orderNumber // "FAILED"')
+
+if [ "$ORDER_NUM" != "FAILED" ] && [ "$ORDER_NUM" != "null" ]; then
+  echo "✅ 테스트 주문 생성 성공: $ORDER_NUM"
+  ((PASSED_TESTS++))
+  ((TOTAL_TESTS++))
+  
+  # 생성된 주문으로 추가 테스트
+  run_test "개별 주문 조회" \
+    "curl -s http://localhost:8080/api/orders/$ORDER_NUM" \
+    "$ORDER_NUM"
+  
+  run_test "동기화 API 조회" \
+    "curl -s http://localhost:8080/api/sync/order/$ORDER_NUM" \
+    "$ORDER_NUM"
+  
+  run_test "고객별 주문 조회" \
+    "curl -s http://localhost:8080/api/orders/customer/통합테스트고객" \
+    "$ORDER_NUM"
+  
+  run_test "PENDING 상태 주문 조회" \
+    "curl -s http://localhost:8080/api/orders/status/PENDING" \
+    "$ORDER_NUM"
+  
+  # Consumer 처리 대기 및 검증
+  echo "⏳ Consumer 처리 대기 (30초)..."
+  sleep 30
+  
+  run_test "Consumer 처리 결과 조회" \
+    "curl -s http://localhost:8081/api/sync/processed-order/$ORDER_NUM" \
+    "$ORDER_NUM"
+  
+else
+  echo "❌ 테스트 주문 생성 실패"
+  ((FAILED_TESTS++))
+  ((TOTAL_TESTS++))
+fi
+
+echo ""
+echo "❌ === 에러 케이스 검증 ==="
+
+run_test "필수 필드 누락 에러" \
+  "curl -s -w '%{http_code}' -X POST http://localhost:8080/api/orders -H 'Content-Type: application/json' -d '{\"productName\":\"테스트상품\"}'" \
+  "400"
+
+run_test "존재하지 않는 주문 조회 에러" \
+  "curl -s -w '%{http_code}' http://localhost:8080/api/orders/INVALID-ORDER-123" \
+  "404"
+
+run_test "잘못된 주문 상태 조회 에러" \
+  "curl -s -w '%{http_code}' http://localhost:8080/api/orders/status/INVALID_STATUS" \
+  "400"
+
+echo ""
+echo "🌏 === 특수문자 및 다국어 테스트 ==="
+
+KOREAN_ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "김영희",
+    "productName": "한글 상품명 테스트",
+    "quantity": 1,
+    "price": 30000.00
+  }')
+
+KOREAN_ORDER_NUM=$(echo $KOREAN_ORDER_RESPONSE | jq -r '.orderNumber // "FAILED"')
+
+if [ "$KOREAN_ORDER_NUM" != "FAILED" ] && [ "$KOREAN_ORDER_NUM" != "null" ]; then
+  echo "✅ 한글 주문 생성 성공: $KOREAN_ORDER_NUM"
+  ((PASSED_TESTS++))
+  ((TOTAL_TESTS++))
+  
+  run_test "한글 고객명 조회" \
+    "curl -s http://localhost:8080/api/orders/customer/김영희" \
+    "$KOREAN_ORDER_NUM"
+else
+  echo "❌ 한글 주문 생성 실패"
+  ((FAILED_TESTS++))
+  ((TOTAL_TESTS++))
+fi
+
+echo ""
+echo "🎯 === 통합 테스트 결과 요약 ==="
+echo "  📊 전체 테스트: $TOTAL_TESTS개"
+echo "  ✅ 통과: $PASSED_TESTS개"
+echo "  ❌ 실패: $FAILED_TESTS개"
+echo "  📈 성공률: $(( PASSED_TESTS * 100 / TOTAL_TESTS ))%"
+
+if [ $FAILED_TESTS -eq 0 ]; then
+  echo "  🎉 모든 테스트 통과!"
+  exit 0
+else
+  echo "  ⚠️  일부 테스트 실패"
+  exit 1
+fi
 ```
+
+### 📝 수동 검증 체크리스트
+
+문서의 모든 curl 명령어가 올바르게 작동하는지 수동으로 확인할 수 있는 체크리스트:
+
+#### Phase 1: 환경 준비
+- [ ] Docker Desktop 실행 중
+- [ ] LocalStack 컨테이너 실행 중 (`docker-compose up -d`)
+- [ ] Producer 서비스 실행 중 (포트 8080)
+- [ ] Consumer 서비스 실행 중 (포트 8081)
+- [ ] AWS CLI 설치 및 설정 완료
+- [ ] jq 명령어 사용 가능
+
+#### Phase 2: 시스템 상태 확인
+- [ ] `curl -s http://localhost:4566/_localstack/health` → running 상태 확인
+- [ ] `curl -s http://localhost:8080/actuator/health` → UP 상태 확인  
+- [ ] `curl -s http://localhost:8081/actuator/health` → UP 상태 확인
+- [ ] `curl -s http://localhost:8080/api/sync/health` → running 메시지 확인
+- [ ] `curl -s http://localhost:8081/api/sync/health` → running 메시지 확인
+
+#### Phase 3: 기본 주문 플로우 검증
+- [ ] 주문 생성 POST → 201 응답 및 orderNumber 생성 확인
+- [ ] 개별 주문 조회 GET → 생성된 주문 데이터 반환 확인
+- [ ] 전체 주문 조회 GET → 배열 형태 응답 확인
+- [ ] 고객별 주문 조회 GET → 해당 고객 주문만 필터링 확인
+- [ ] 상태별 주문 조회 GET → PENDING 상태 주문 포함 확인
+- [ ] 동기화 API 조회 GET → Producer 측 동기화 데이터 확인
+
+#### Phase 4: Consumer 동기화 검증 (30초 후)
+- [ ] Consumer 처리 결과 조회 → 처리 완료된 주문 데이터 확인
+- [ ] Producer vs Consumer 데이터 일관성 → orderNumber, 고객명, 금액 일치
+- [ ] SQS 큐 메시지 수 확인 → 메시지 처리 완료 상태
+
+#### Phase 5: 에러 케이스 검증  
+- [ ] 필수 필드 누락 → 400 에러 및 validation 메시지 확인
+- [ ] 존재하지 않는 주문 조회 → 404 에러 확인
+- [ ] 잘못된 OrderStatus → 400/500 에러 확인
+- [ ] 음수값 입력 → validation 에러 확인
+
+#### Phase 6: 특수 케이스 검증
+- [ ] 한글 고객명/상품명 → 정상 처리 및 조회 확인
+- [ ] 특수문자 포함 데이터 → 정상 처리 확인
+- [ ] URL 인코딩 필요한 고객명 조회 → 정상 응답 확인
+- [ ] 대량 주문 생성 (10개) → 모든 주문 처리 완료 확인
 
 ## 📝 결론
 
