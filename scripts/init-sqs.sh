@@ -52,6 +52,9 @@ create_queue_with_dlq() {
 # 기본 큐 생성
 create_queue_with_dlq "order-processing-queue" "order-processing-dlq" 3
 
+# 데이터 동기화 큐 생성 (Producer ↔ Consumer 간 동기화용)
+create_queue_with_dlq "sync-events-queue" "sync-events-dlq" 3
+
 # 추가 큐 예시 (필요시 주석 해제)
 # create_queue_with_dlq "payment-processing-queue" "payment-processing-dlq" 5
 # create_queue_with_dlq "notification-queue" "notification-dlq" 2

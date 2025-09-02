@@ -1,0 +1,234 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.3' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+// 모든 서브프로젝트에 공통 설정 적용
+allprojects {
+    group = 'com.demo'
+    version = '0.0.1-SNAPSHOT'
+    
+    repositories {
+        mavenCentral()
+        
+        // ========================================================
+        // 📦 Nexus Repository 설정 (사내 패키지 저장소)
+        // ========================================================
+        // 사내 Nexus를 사용하는 경우 아래 주석을 해제하고 URL 수정:
+        /*
+        maven {
+            name = "nexus-releases"
+            url = "http://your-nexus-server:8081/repository/maven-public/"  // 👈 회사 Nexus URL로 변경
+            allowInsecureProtocol = true  // HTTP 사용 시 (HTTPS 권장)
+            credentials {
+                username = project.findProperty("nexusUsername") ?: System.getenv("NEXUS_USERNAME")
+                password = project.findProperty("nexusPassword") ?: System.getenv("NEXUS_PASSWORD")
+            }
+        }
+        
+        maven {
+            name = "nexus-snapshots"
+            url = "http://your-nexus-server:8081/repository/maven-snapshots/"  // 👈 회사 Nexus URL로 변경
+            allowInsecureProtocol = true  // HTTP 사용 시 (HTTPS 권장)
+            credentials {
+                username = project.findProperty("nexusUsername") ?: System.getenv("NEXUS_USERNAME")
+                password = project.findProperty("nexusPassword") ?: System.getenv("NEXUS_PASSWORD")
+            }
+        }
+        */
+        
+        // 📋 Nexus 사용 시 추가 설정 안내:
+        // 1. gradle.properties에 추가:
+        //    nexusUsername=your-username
+        //    nexusPassword=your-password
+        // 2. 또는 환경변수 설정:
+        //    export NEXUS_USERNAME=your-username
+        //    export NEXUS_PASSWORD=your-password
+        // 3. URL을 회사 Nexus 서버 주소로 변경
+        // ========================================================
+    }
+}
+
+// 서브프로젝트에만 적용되는 설정
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'io.spring.dependency-management'
+    
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+    
+    configurations {
+        compileOnly {
+            extendsFrom annotationProcessor
+        }
+    }
+    
+    ext {
+        set('springCloudVersion', "2024.0.0")
+    }
+    
+    // 공통 의존성 설정
+    dependencies {
+        implementation 'org.springframework.boot:spring-boot-starter-web'
+        implementation 'org.springframework.boot:spring-boot-starter-actuator'
+        implementation 'org.springframework.boot:spring-boot-starter-validation'
+        implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+        implementation 'com.h2database:h2'
+        
+        // AWS SQS
+        implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
+        implementation 'software.amazon.awssdk:sqs'
+        
+        // JSON Processing
+        implementation 'com.fasterxml.jackson.core:jackson-databind'
+        implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+        
+        // Observability
+        implementation 'io.micrometer:micrometer-registry-prometheus'
+        
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+        
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+        testImplementation 'io.awspring.cloud:spring-cloud-aws-testcontainers'
+        testImplementation 'org.testcontainers:junit-jupiter'
+        testImplementation 'org.testcontainers:localstack'
+        testImplementation 'com.amazonaws:aws-java-sdk-sqs:1.12.756'
+        testImplementation 'org.awaitility:awaitility'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+    
+    dependencyManagement {
+        imports {
+            mavenBom "io.awspring.cloud:spring-cloud-aws-dependencies:3.2.1"
+            mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        }
+    }
+    
+    // 공통 테스트 설정
+    tasks.named('test') {
+        useJUnitPlatform {
+            excludeTags 'integration'
+        }
+        systemProperty 'spring.profiles.active', 'test'
+    }
+    
+    tasks.register('integrationTest', Test) {
+        useJUnitPlatform {
+            includeTags 'integration'
+        }
+        description = 'Runs integration tests.'
+        group = 'verification'
+        shouldRunAfter test
+        
+        // Colima Docker support
+        systemProperty 'spring.profiles.active', 'test'
+        environment 'DOCKER_HOST', 'unix://' + System.getProperty('user.home') + '/.colima/default/docker.sock'
+        environment 'TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE', '/var/run/docker.sock'
+        systemProperty 'testcontainers.dockersocket.override', System.getProperty('user.home') + '/.colima/default/docker.sock'
+    }
+    
+    check.dependsOn integrationTest
+    
+    // ========================================================
+    // 📤 Nexus Publishing 설정 (패키지 배포)
+    // ========================================================
+    // 사내 Nexus에 패키지를 배포하는 경우 아래 주석을 해제하고 설정:
+    /*
+    apply plugin: 'maven-publish'
+    
+    publishing {
+        publications {
+            maven(MavenPublication) {
+                from components.java
+                
+                pom {
+                    name = project.name
+                    description = project.description
+                    packaging = 'jar'
+                }
+            }
+        }
+        
+        repositories {
+            maven {
+                name = "nexus"
+                def releasesRepoUrl = "http://your-nexus-server:8081/repository/maven-releases/"  // 👈 회사 Nexus URL로 변경
+                def snapshotsRepoUrl = "http://your-nexus-server:8081/repository/maven-snapshots/"  // 👈 회사 Nexus URL로 변경
+                url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+                allowInsecureProtocol = true  // HTTP 사용 시 (HTTPS 권장)
+                credentials {
+                    username = project.findProperty("nexusUsername") ?: System.getenv("NEXUS_USERNAME")
+                    password = project.findProperty("nexusPassword") ?: System.getenv("NEXUS_PASSWORD")
+                }
+            }
+        }
+    }
+    */
+    
+    // 📋 Nexus Publishing 사용 방법:
+    // 1. 위의 주석을 해제하고 URL을 회사 Nexus로 변경
+    // 2. 패키지 배포 명령어:
+    //    ./gradlew publish  (모든 모듈 배포)
+    //    ./gradlew :producer-service:publish  (Producer만 배포)
+    //    ./gradlew :consumer-service:publish  (Consumer만 배포)
+    // 3. 버전 관리:
+    //    - SNAPSHOT: 개발 중인 버전 (자동으로 snapshots 저장소에 배포)
+    //    - RELEASE: 정식 버전 (releases 저장소에 배포)
+    // ========================================================
+}
+
+// 전체 서비스 동시 실행 태스크
+task startAllServices {
+    group = 'application'
+    description = 'Producer와 Consumer 서비스를 동시에 실행합니다'
+    
+    doLast {
+        println '''
+===========================================
+🚀 두 서비스를 동시에 시작합니다...
+===========================================
+Producer Service: http://localhost:8080
+Consumer Service:  http://localhost:8081
+LocalStack SQS:    http://localhost:4566
+===========================================
+서비스를 중지하려면 Ctrl+C를 누르세요
+===========================================
+        '''
+    }
+}
+
+// 병렬 실행을 위한 개별 태스크
+task startProducer {
+    group = 'application'
+    description = 'Producer 서비스를 실행합니다'
+    dependsOn ':producer-service:bootRun'
+}
+
+task startConsumer {
+    group = 'application'  
+    description = 'Consumer 서비스를 실행합니다'
+    dependsOn ':consumer-service:bootRun'
+}
+
+// startAllServices가 병렬로 두 서비스 실행하도록 설정
+startAllServices.dependsOn startProducer, startConsumer
+
+// 병렬 실행 가능하도록 설정
+tasks.configureEach {
+    if (it.name in ['startProducer', 'startConsumer']) {
+        it.setMustRunAfter([])
+    }
+}
+
+// Wrapper 태스크 설정
+wrapper {
+    gradleVersion = '8.10'
+    distributionType = Wrapper.DistributionType.ALL
+}

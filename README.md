@@ -21,7 +21,22 @@
 
 ## 🚀 빠른 시작
 
-### 원클릭 테스트 (추천)
+### 🎯 멀티모듈 실행 (NEW! 권장)
+```bash
+# LocalStack 시작
+docker-compose up -d
+
+# 방법 1: Gradle 병렬 실행 (가장 간단)
+./gradlew :producer-service:bootRun :consumer-service:bootRun --parallel
+
+# 방법 2: 커스텀 태스크
+./gradlew startAllServices --parallel  
+
+# 방법 3: 편의 스크립트 (대화형)
+./start-all-services.sh
+```
+
+### 원클릭 테스트 (기존 방식)
 ```bash
 # 전체 시스템 자동 테스트
 ./test-sqs-system.sh
@@ -30,7 +45,7 @@
 ./stop-sqs-system.sh
 ```
 
-### 수동 시작
+### 수동 시작 (기존 방식)
 
 ### 1. 시스템 시작
 ```bash
@@ -96,11 +111,11 @@ docker logs consumer-service
 
 ## 🛠️ 개발 가이드
 
-### 환경 요구사항
-- Docker Desktop
-- AWS CLI
-- Java 21 이상
-- Gradle
+### 환경 요구사항 (멀티모듈)
+- **Docker Desktop** (LocalStack 실행용)
+- **AWS CLI** (SQS 큐 확인용)  
+- **Java 21 이상** ⭐ (필수! Gradle이 자동 다운로드)
+- ~~Gradle~~ (프로젝트에 Gradle Wrapper 포함)
 
 ### 로컬 개발 설정
 ```bash
@@ -226,14 +241,47 @@ aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
 
 ## 🚀 실무 적용
 
+### 📦 Nexus Repository 설정 (사내 패키지 저장소)
+
+#### 1. Nexus 다운로드 설정
+```bash
+# 1. build.gradle에서 Nexus 설정 주석 해제
+# 2. URL을 회사 Nexus 서버로 변경
+# 3. 인증정보 설정 (gradle.properties 또는 환경변수)
+```
+
+#### 2. 인증 정보 설정
+```bash
+# 방법 1: gradle.properties 파일에 추가 (주의: .gitignore 추가 필요)
+nexusUsername=your-username
+nexusPassword=your-password
+
+# 방법 2: 환경변수 (권장)
+export NEXUS_USERNAME=your-username
+export NEXUS_PASSWORD=your-password
+```
+
+#### 3. 패키지 배포
+```bash
+# 전체 프로젝트 배포
+./gradlew publish
+
+# 개별 모듈 배포  
+./gradlew :producer-service:publish
+./gradlew :consumer-service:publish
+```
+
+### 🏢 기타 실무 고려사항
+
 실무 환경에 적용하고자 할 때는 [`LocalStack_SQS_실무_적용_가이드라인.md`](LocalStack_SQS_실무_적용_가이드라인.md)를 참조하세요.
 
 주요 고려사항:
-- AWS 실제 환경 설정
-- 보안 강화 (IAM, VPC, 암호화)
-- 성능 최적화
-- 모니터링 및 알림
-- CI/CD 파이프라인
+- **Nexus Repository**: 사내 패키지 저장소 연동
+- **AWS 실제 환경 설정**: LocalStack → AWS 전환
+- **보안 강화**: IAM, VPC, 암호화, 인증정보 관리
+- **성능 최적화**: 커넥션 풀, 배치 처리
+- **모니터링 및 알림**: CloudWatch, 로그 집계  
+- **CI/CD 파이프라인**: Jenkins, GitHub Actions 연동
 
 ## 📖 기술 용어집
 

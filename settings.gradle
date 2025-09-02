@@ -1,0 +1,8 @@
+rootProject.name = 'demo-sqs-system'
+
+include 'producer-service'
+include 'consumer-service'
+
+// 프로젝트 디스플레이 이름 설정
+project(':producer-service').name = 'producer-service'
+project(':consumer-service').name = 'consumer-service'

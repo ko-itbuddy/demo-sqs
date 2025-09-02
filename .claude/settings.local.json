@@ -50,7 +50,20 @@
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker logs cdcce6b69614 --tail=20)",
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker stop cdcce6b69614)",
       "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" docker run --rm -d -p 4566:4566 localstack/localstack:3.0)",
-      "Bash(jps:*)"
+      "Bash(jps:*)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./producer-service/gradlew wrapper --gradle-version 8.10)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./gradlew projects)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./gradlew tasks)",
+      "Bash(chmod:*)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./gradlew build --no-daemon)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" timeout 10s ./gradlew :producer-service:bootRun :consumer-service:bootRun --parallel --info)",
+      "mcp__serena__think_about_collected_information",
+      "mcp__serena__think_about_task_adherence",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" ./gradlew clean build --no-daemon)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" timeout 15s ./gradlew :producer-service:bootRun :consumer-service:bootRun --parallel --info)",
+      "Bash(java:*)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" git status)",
+      "Bash(DOCKER_HOST=\"unix://$HOME/.colima/default/docker.sock\" git add .)"
     ],
     "deny": [],
     "ask": []

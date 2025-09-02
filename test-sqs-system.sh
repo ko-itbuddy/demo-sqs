@@ -73,27 +73,24 @@ wait_for_services() {
 
 start_services() {
     echo -e "\n${BLUE}4. Producer/Consumer 서비스 시작${NC}"
+    echo "멀티모듈 Gradle 구조를 사용하여 서비스를 시작합니다..."
     
-    # Producer 서비스 시작 (백그라운드)
+    # 멀티모듈 Gradle로 Producer 서비스 시작 (백그라운드)
     echo "Producer 서비스 시작 중..."
-    cd producer-service
-    nohup ./gradlew bootRun > ../producer.log 2>&1 &
+    nohup ./gradlew :producer-service:bootRun > producer.log 2>&1 &
     PRODUCER_PID=$!
-    echo $PRODUCER_PID > ../producer.pid
-    cd ..
+    echo $PRODUCER_PID > producer.pid
     
-    # Consumer 서비스 시작 (백그라운드)
+    # 멀티모듈 Gradle로 Consumer 서비스 시작 (백그라운드)
     echo "Consumer 서비스 시작 중..."
-    cd consumer-service
-    nohup ./gradlew bootRun > ../consumer.log 2>&1 &
+    nohup ./gradlew :consumer-service:bootRun > consumer.log 2>&1 &
     CONSUMER_PID=$!
-    echo $CONSUMER_PID > ../consumer.pid
-    cd ..
+    echo $CONSUMER_PID > consumer.pid
     
     echo -e "${YELLOW}⏳ 서비스 시작 대기 중 (30초)...${NC}"
     sleep 30
     
-    echo -e "${GREEN}✅ Producer/Consumer 서비스 시작 완료${NC}"
+    echo -e "${GREEN}✅ Producer/Consumer 서비스 시작 완료 (멀티모듈 구조)${NC}"
 }
 
 test_system() {
