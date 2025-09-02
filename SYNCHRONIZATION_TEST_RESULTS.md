@@ -348,6 +348,241 @@ catch (ProducerApiClient.ProducerApiException e) {
 3. **Consumer API 엔드포인트** 추가로 동기화된 데이터 조회 기능
 4. **종합적인 통합 테스트** 작성
 
+## 📋 완전한 동기화 검증 시나리오
+
+### 🔄 Step-by-Step 검증 과정
+
+이 섹션에서는 주문 생성부터 완전한 동기화까지의 전체 프로세스를 단계별로 검증하는 과정을 보여줍니다.
+
+#### 1단계: 초기 데이터 상태 확인
+
+**Producer 서비스 전체 주문 확인**
+```bash
+# Producer의 현재 주문 목록 조회
+curl -s http://localhost:8080/api/orders | jq '.'
+```
+
+**Consumer 서비스 상태 확인**
+```bash
+# Consumer 동기화 API 헬스체크
+curl -s http://localhost:8081/api/sync/health
+```
+
+#### 2단계: 주문 생성 및 즉시 확인
+
+**주문 생성 요청**
+```bash
+# 새로운 주문 생성 (orderNumber는 응답으로 받음)
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "동기화검증고객", 
+    "productName": "완전동기화테스트상품", 
+    "quantity": 3, 
+    "price": 75000.00
+  }' | jq '.'
+```
+
+**예상 응답**
+```json
+{
+  "id": 3,
+  "orderNumber": "ORD-20250902-143022-ABC123EF",
+  "customerName": "동기화검증고객",
+  "productName": "완전동기화테스트상품", 
+  "quantity": 3,
+  "price": 75000.00,
+  "totalAmount": 225000.00,
+  "status": "PENDING",
+  "statusDescription": "대기중",
+  "createdAt": "2025-09-02T14:30:22.123456",
+  "updatedAt": null
+}
+```
+
+#### 3단계: Producer 측 데이터 확인
+
+**🎯 응답에서 받은 orderNumber로 변수 설정**
+```bash
+# 실제 응답에서 받은 orderNumber로 교체하세요
+ORDER_NUM="ORD-20250902-143022-ABC123EF"
+```
+
+**개별 주문 조회**
+```bash
+# Producer에서 방금 생성된 주문 조회
+curl -s "http://localhost:8080/api/orders/$ORDER_NUM" | jq '.'
+```
+
+**동기화 전용 API로 조회**
+```bash
+# Producer 동기화 API로 주문 정보 조회
+curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '.'
+```
+
+**상태별 주문 조회**
+```bash
+# PENDING 상태 주문들 확인 (방금 생성한 주문 포함되어야 함)
+curl -s http://localhost:8080/api/orders/status/PENDING | jq '.'
+```
+
+#### 4단계: Consumer 처리 대기 및 확인 (10-30초 후)
+
+**처리 대기**
+```bash
+echo "Consumer가 메시지를 처리할 때까지 30초 대기..."
+sleep 30
+```
+
+**Consumer 처리 결과 확인**
+```bash
+# Consumer에서 처리된 주문 데이터 조회
+curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '.'
+```
+
+**예상 Consumer 응답**
+```json
+{
+  "orderNumber": "ORD-20250902-143022-ABC123EF",
+  "customerName": "동기화검증고객",
+  "productName": "완전동기화테스트상품",
+  "quantity": 3,
+  "price": 75000.00,
+  "totalAmount": 225000.00,
+  "processingStatus": "COMPLETED",
+  "processedAt": "2025-09-02T14:30:52.987654",
+  "messageId": "sqs-message-id-12345"
+}
+```
+
+#### 5단계: 동기화 완료 후 Producer 데이터 재확인
+
+**Producer 주문 상태 재확인**
+```bash
+# 동기화 후 Producer의 주문 상태 확인 (상태 변경 가능성)
+curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '.'
+```
+
+**전체 주문 목록에서 상태 확인**
+```bash
+# 전체 주문 목록에서 해당 주문의 최종 상태 확인
+curl -s http://localhost:8080/api/orders | jq --arg order "$ORDER_NUM" '.[] | select(.orderNumber == $order)'
+```
+
+#### 6단계: 양방향 동기화 완전성 검증
+
+**Producer와 Consumer 데이터 동시 비교**
+```bash
+echo "=== 🔍 동기화 완전성 검증 ==="
+echo ""
+
+echo "📊 Producer 데이터:"
+curl -s "http://localhost:8080/api/sync/order/$ORDER_NUM" | jq '{
+  orderNumber,
+  customerName,
+  status,
+  totalAmount,
+  createdAt,
+  updatedAt
+}'
+
+echo ""
+echo "📊 Consumer 데이터:"
+curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '{
+  orderNumber,
+  customerName,
+  processingStatus,
+  totalAmount,
+  processedAt
+}'
+
+echo ""
+echo "✅ 동기화 검증 완료!"
+```
+
+#### 7단계: 고객별/상태별 조회로 최종 검증
+
+**고객별 주문 조회**
+```bash
+# 해당 고객의 모든 주문 조회 (방금 생성한 주문 포함 확인)
+curl -s http://localhost:8080/api/orders/customer/동기화검증고객 | jq '.'
+```
+
+**완료된 주문들 조회**
+```bash
+# COMPLETED 상태 주문들 확인 (동기화 완료 시 포함될 수 있음)
+curl -s http://localhost:8080/api/orders/status/COMPLETED | jq '.'
+```
+
+**SQS 큐 상태 확인**
+```bash
+# SQS 큐의 메시지 처리 상황 확인
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2
+
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2
+```
+
+### 📊 검증 체크리스트
+
+완전한 동기화 검증을 위한 체크리스트:
+
+- [ ] **Producer 주문 생성** ✅ orderNumber 응답 받음
+- [ ] **Producer 데이터 저장** ✅ 개별/전체 조회로 확인
+- [ ] **SQS 메시지 발송** ✅ 큐 통계로 확인
+- [ ] **Consumer 메시지 수신** ✅ 로그 또는 처리 결과로 확인
+- [ ] **Consumer 비즈니스 로직 처리** ✅ processedAt 타임스탬프 확인
+- [ ] **Consumer 데이터 저장** ✅ processed-order API로 확인
+- [ ] **동기화 이벤트 발송** ✅ sync-events-queue 통계 확인
+- [ ] **양방향 데이터 일관성** ✅ Producer/Consumer 데이터 비교
+- [ ] **전체 플로우 완료** ✅ 모든 API 응답 정상
+
+### 🔄 반복 테스트 스크립트
+
+여러 주문을 연속으로 생성하여 동기화 안정성 테스트:
+
+```bash
+#!/bin/bash
+echo "🚀 연속 동기화 테스트 시작"
+
+for i in {1..5}; do
+  echo ""
+  echo "=== 테스트 $i/5 ==="
+  
+  # 주문 생성
+  RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"customerName\": \"테스트고객$i\",
+      \"productName\": \"연속테스트상품$i\",
+      \"quantity\": $i,
+      \"price\": $((i * 10000)).00
+    }")
+  
+  ORDER_NUM=$(echo $RESPONSE | jq -r '.orderNumber')
+  echo "✅ 주문 생성: $ORDER_NUM"
+  
+  # 30초 대기 후 Consumer 확인
+  sleep 30
+  
+  # 동기화 확인
+  CONSUMER_DATA=$(curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM")
+  if echo $CONSUMER_DATA | jq -e '.orderNumber' > /dev/null; then
+    echo "✅ Consumer 동기화 완료: $ORDER_NUM"
+  else
+    echo "❌ Consumer 동기화 실패: $ORDER_NUM"
+  fi
+done
+
+echo ""
+echo "🎉 연속 동기화 테스트 완료"
+```
+
 ## 📝 결론
 
 Producer-Consumer 동기화 시스템이 성공적으로 구현되어 다음과 같은 완전한 동기화 플로우를 달성했습니다:
