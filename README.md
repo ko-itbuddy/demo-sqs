@@ -132,12 +132,31 @@ cd consumer-service
 ```
 
 ### API 엔드포인트
-#### Producer Service (포트 8080)
-- `POST /api/orders` - 주문 생성
-- `GET /actuator/health` - 헬스체크
 
-#### Consumer Service (포트 8081)
-- `GET /actuator/health` - 헬스체크
+#### Producer Service (포트 8080)
+**주문 관리 API**
+- `POST /api/orders` - 주문 생성
+- `GET /api/orders/{orderNumber}` - 개별 주문 조회  
+- `GET /api/orders` - 전체 주문 목록 조회
+- `GET /api/orders/customer/{customerName}` - 고객별 주문 조회
+- `GET /api/orders/status/{status}` - 상태별 주문 조회 (PENDING, PROCESSING, COMPLETED, FAILED)
+
+**동기화 API** 
+- `GET /api/sync/order/{orderNumber}` - 동기화용 주문 정보 조회
+- `GET /api/sync/health` - 동기화 API 헬스체크
+
+**시스템 API**
+- `GET /actuator/health` - 시스템 헬스체크
+
+#### Consumer Service (포트 8081)  
+**처리된 주문 조회 API**
+- `GET /api/sync/processed-order/{orderNumber}` - 처리 완료된 주문 조회
+
+**동기화 API**
+- `GET /api/sync/health` - 동기화 API 헬스체크  
+
+**시스템 API** 
+- `GET /actuator/health` - 시스템 헬스체크
 - 자동 메시지 폴링 (10초 간격)
 
 ## 🔧 문제 해결
@@ -187,11 +206,45 @@ docker logs -f localstack          # LocalStack 로그
 ## 🧪 테스트 가이드
 
 ### 기본 테스트
+
+#### 1. 주문 생성
 ```bash
-# 단일 메시지 테스트
+# 주문 생성 (orderNumber는 응답으로 받음)
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
   -d '{"customerName":"테스트 고객", "productName":"테스트 상품", "quantity":1, "price":10000.00}'
+```
+
+#### 2. 생성된 주문 조회
+```bash
+# 개별 주문 조회 (응답에서 받은 orderNumber 사용)
+curl http://localhost:8080/api/orders/ORD-20250902-123456-ABCDEF12
+
+# 전체 주문 목록 조회
+curl http://localhost:8080/api/orders
+
+# 고객별 주문 조회
+curl http://localhost:8080/api/orders/customer/테스트고객
+
+# 상태별 주문 조회  
+curl http://localhost:8080/api/orders/status/PENDING
+curl http://localhost:8080/api/orders/status/COMPLETED
+```
+
+#### 3. Consumer에서 처리된 주문 확인
+```bash
+# 처리 완료된 주문 조회 (Consumer Service)
+curl http://localhost:8081/api/sync/processed-order/ORD-20250902-123456-ABCDEF12
+```
+
+#### 4. 동기화 상태 확인
+```bash
+# Producer 동기화 API로 주문 조회
+curl http://localhost:8080/api/sync/order/ORD-20250902-123456-ABCDEF12
+
+# 동기화 API 헬스체크
+curl http://localhost:8080/api/sync/health
+curl http://localhost:8081/api/sync/health
 ```
 
 ### 부하 테스트
@@ -224,10 +277,43 @@ docker start consumer-service
 
 ### 시스템 상태 확인
 ```bash
-# 전체 서비스 헬스체크
+# 전체 서비스 헬스체크  
 curl http://localhost:4566/_localstack/health    # LocalStack
 curl http://localhost:8080/actuator/health       # Producer
 curl http://localhost:8081/actuator/health       # Consumer
+
+# 동기화 API 상태 확인
+curl http://localhost:8080/api/sync/health        # Producer Sync API
+curl http://localhost:8081/api/sync/health        # Consumer Sync API
+```
+
+### 📊 데이터 조회 및 검증
+
+#### 전체 데이터 현황 확인
+```bash
+# Producer의 전체 주문 현황
+curl http://localhost:8080/api/orders | jq .
+
+# 특정 고객의 주문들  
+curl http://localhost:8080/api/orders/customer/김철수 | jq .
+
+# 대기중인 주문들
+curl http://localhost:8080/api/orders/status/PENDING | jq .
+
+# 완료된 주문들
+curl http://localhost:8080/api/orders/status/COMPLETED | jq .
+```
+
+#### 동기화 검증
+```bash
+# Producer와 Consumer 데이터 동기화 상태 비교
+ORDER_NUM="ORD-20250902-123456-ABCDEF12"
+
+echo "=== Producer 데이터 ==="
+curl -s http://localhost:8080/api/sync/order/$ORDER_NUM | jq .
+
+echo "=== Consumer 데이터 ==="  
+curl -s http://localhost:8081/api/sync/processed-order/$ORDER_NUM | jq .
 ```
 
 ### SQS 메트릭
