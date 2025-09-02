@@ -378,9 +378,35 @@ catch (ProducerApiClient.ProducerApiException e) {
 | **SQS 큐 목록** | AWS CLI | `aws sqs list-queues` | SQS 큐 목록 | ✅ 큐 존재 확인 |
 | **SQS 메트릭** | AWS CLI | `aws sqs get-queue-attributes` | 큐 통계 | ✅ 메시지 수량 |
 
-### 🎯 종합 테스트 시나리오
+### 🎯 메시징 패턴별 테스트 시나리오
 
-#### 시나리오 1: 기본 주문 생성 및 전체 플로우 검증
+## 🔄 메시징 아키텍처 개요
+
+### 구현된 메시징 패턴
+1. **Producer-Consumer 패턴** (기본 Pub-Sub)
+   - `Producer → order-processing-queue → Consumer`
+   - 주문 생성 → 비동기 처리
+
+2. **이벤트 기반 동기화** (Event-Driven)
+   - `Producer → sync-events-queue` (ORDER_UPDATED 이벤트)
+   - `Consumer → sync-events-queue` (PROCESSING_COMPLETED 이벤트)
+
+3. **동기적 API 호출** (Request-Response)
+   - `Consumer → Producer REST API` (데이터 동기화)
+
+### 전체 메시지 플로우
+```
+[주문 생성] → [Producer] 
+    ↓
+    ├── order-processing-queue → [Consumer 비즈니스 처리]
+    └── sync-events-queue → [동기화 이벤트 처리]
+                ↓
+            [Producer API 호출] → [데이터 일관성 보장]
+```
+
+## 📋 시나리오별 테스트 가이드
+
+#### 시나리오 1: 기본 Pub-Sub 패턴 검증 (Producer-Consumer)
 
 **1.1 환경 준비 및 초기 상태 확인**
 ```bash
@@ -577,7 +603,207 @@ else
 fi
 ```
 
-#### 시나리오 2: 대량 주문 및 성능 검증
+#### 시나리오 2: 순수 Pub-Sub 패턴 단독 테스트
+
+**2.1 Pub-Sub만 검증 (동기화 없이)**
+```bash
+echo "📨 === 순수 Pub-Sub 패턴 테스트 ==="
+
+# SQS 큐 상태 초기화 확인
+echo "📊 초기 큐 상태:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes.ApproximateNumberOfMessages'
+
+# 주문 생성 (Producer 역할)
+echo "🏭 Producer: 주문 메시지 발행"
+ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "PubSub테스트고객",
+    "productName": "메시지큐테스트상품",
+    "quantity": 2,
+    "price": 45000.00
+  }')
+
+ORDER_NUM=$(echo $ORDER_RESPONSE | jq -r '.orderNumber')
+echo "✅ Producer 메시지 발행 완료: $ORDER_NUM"
+
+# 메시지 큐 상태 확인 (발행 후)
+echo "📊 메시지 발행 후 큐 상태:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes'
+
+# Consumer 처리 대기
+echo "🔄 Consumer 메시지 소비 대기 (20초)..."
+sleep 20
+
+# 메시지 처리 후 큐 상태
+echo "📊 Consumer 처리 후 큐 상태:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/order-processing-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes.ApproximateNumberOfMessages'
+
+# Consumer 처리 결과 확인
+echo "🔄 Consumer 처리 결과 확인:"
+curl -s "http://localhost:8081/api/sync/processed-order/$ORDER_NUM" | jq '{
+  orderNumber,
+  status,
+  processedAt,
+  messageId
+}'
+
+echo "✅ Pub-Sub 패턴 테스트 완료!"
+```
+
+#### 시나리오 3: 이벤트 기반 동기화 패턴 검증
+
+**3.1 동기화 이벤트 플로우 집중 테스트**
+```bash
+echo "🔄 === 이벤트 기반 동기화 테스트 ==="
+
+# sync-events-queue 초기 상태
+echo "📊 동기화 큐 초기 상태:"
+aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes.ApproximateNumberOfMessages'
+
+# 주문 생성 (2개의 동기화 이벤트가 생성됨)
+echo "📝 주문 생성 (동기화 이벤트 발생):"
+SYNC_ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerName": "동기화이벤트테스트고객",
+    "productName": "이벤트드리븐테스트상품",
+    "quantity": 1,
+    "price": 35000.00
+  }')
+
+SYNC_ORDER_NUM=$(echo $SYNC_ORDER_RESPONSE | jq -r '.orderNumber')
+echo "✅ 주문 생성 완료: $SYNC_ORDER_NUM"
+
+# 동기화 이벤트 생성 확인
+sleep 5
+echo "📊 ORDER_UPDATED 이벤트 생성 후 sync-events-queue:"
+SYNC_MESSAGES_1=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
+  --region ap-northeast-2 | jq '.Attributes')
+echo $SYNC_MESSAGES_1
+
+# Consumer 처리 대기 (PROCESSING_COMPLETED 이벤트도 생성됨)
+echo "⏳ Consumer 처리 및 PROCESSING_COMPLETED 이벤트 생성 대기 (30초)..."
+sleep 30
+
+echo "📊 모든 동기화 이벤트 처리 후 sync-events-queue:"
+SYNC_MESSAGES_2=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+  --queue-url "http://sqs.ap-northeast-2.localhost.localstack.cloud:4566/000000000000/sync-events-queue" \
+  --attribute-names ApproximateNumberOfMessages \
+  --region ap-northeast-2 | jq '.Attributes')
+echo $SYNC_MESSAGES_2
+
+# 동기화 결과 검증
+echo "🔍 동기화 이벤트 처리 결과 검증:"
+echo "Producer 동기화 데이터:"
+curl -s "http://localhost:8080/api/sync/order/$SYNC_ORDER_NUM" | jq '{
+  orderNumber,
+  status,
+  updatedAt
+}'
+
+echo "Consumer 처리 데이터:"
+curl -s "http://localhost:8081/api/sync/processed-order/$SYNC_ORDER_NUM" | jq '{
+  orderNumber,
+  status: .status,
+  processedAt
+}'
+
+echo "✅ 이벤트 기반 동기화 테스트 완료!"
+```
+
+#### 시나리오 4: API 동기화 패턴 검증 (Request-Response)
+
+**4.1 Consumer → Producer API 호출 테스트**
+```bash
+echo "🔗 === API 동기화 패턴 테스트 ==="
+
+# Producer API 직접 테스트
+echo "🏭 Producer 동기화 API 직접 호출 테스트:"
+
+# 기존 주문이 있는지 확인
+EXISTING_ORDERS=$(curl -s http://localhost:8080/api/orders | jq '.')
+if [ "$(echo $EXISTING_ORDERS | jq 'length')" -gt 0 ]; then
+    EXISTING_ORDER_NUM=$(echo $EXISTING_ORDERS | jq -r '.[0].orderNumber')
+    echo "📋 기존 주문 사용: $EXISTING_ORDER_NUM"
+else
+    # 새 주문 생성
+    echo "📝 API 테스트용 주문 생성:"
+    API_ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/api/orders \
+      -H "Content-Type: application/json" \
+      -d '{
+        "customerName": "API동기화테스트고객",
+        "productName": "API테스트상품",
+        "quantity": 1,
+        "price": 25000.00
+      }')
+    EXISTING_ORDER_NUM=$(echo $API_ORDER_RESPONSE | jq -r '.orderNumber')
+    echo "✅ 주문 생성 완료: $EXISTING_ORDER_NUM"
+fi
+
+# Consumer가 Producer API를 호출하는 시뮬레이션
+echo "🔄 Consumer → Producer API 호출 시뮬레이션:"
+
+# 1. Producer 헬스체크 (Consumer가 하는 것처럼)
+echo "1️⃣  Producer API 헬스체크:"
+curl -s http://localhost:8080/api/sync/health
+echo
+
+# 2. Producer 동기화 API 호출
+echo "2️⃣  Producer 동기화 데이터 조회:"
+PRODUCER_SYNC_DATA=$(curl -s "http://localhost:8080/api/sync/order/$EXISTING_ORDER_NUM")
+echo $PRODUCER_SYNC_DATA | jq '{
+  orderNumber,
+  customerName,
+  status,
+  totalAmount,
+  createdAt
+}'
+
+# 3. Consumer 데이터와 비교
+echo "3️⃣  Consumer 측 데이터 조회:"
+CONSUMER_DATA=$(curl -s "http://localhost:8081/api/sync/processed-order/$EXISTING_ORDER_NUM")
+if echo $CONSUMER_DATA | jq -e '.orderNumber' > /dev/null 2>&1; then
+    echo $CONSUMER_DATA | jq '{
+      orderNumber,
+      customerName,
+      status,
+      totalAmount: .totalAmount,
+      processedAt
+    }'
+    
+    # 4. 데이터 일관성 검증
+    echo "4️⃣  데이터 일관성 검증:"
+    PRODUCER_AMOUNT=$(echo $PRODUCER_SYNC_DATA | jq -r '.totalAmount')
+    CONSUMER_AMOUNT=$(echo $CONSUMER_DATA | jq -r '.totalAmount')
+    
+    if [ "$PRODUCER_AMOUNT" = "$CONSUMER_AMOUNT" ]; then
+        echo "✅ 금액 일관성 검증 통과: $PRODUCER_AMOUNT"
+    else
+        echo "❌ 금액 불일치: Producer=$PRODUCER_AMOUNT, Consumer=$CONSUMER_AMOUNT"
+    fi
+else
+    echo "ℹ️  Consumer에서 아직 처리되지 않은 주문"
+fi
+
+echo "✅ API 동기화 패턴 테스트 완료!"
+```
+
+#### 시나리오 5: 대량 처리 및 성능 검증
 
 **2.1 대량 주문 생성 스크립트**
 ```bash
@@ -1142,17 +1368,69 @@ fi
 - [ ] URL 인코딩 필요한 고객명 조회 → 정상 응답 확인
 - [ ] 대량 주문 생성 (10개) → 모든 주문 처리 완료 확인
 
-## 📝 결론
+## 📝 메시징 패턴별 검증 결과
 
-Producer-Consumer 동기화 시스템이 성공적으로 구현되어 다음과 같은 완전한 동기화 플로우를 달성했습니다:
+### 🎯 구현된 3가지 메시징 패턴
 
-- ✅ **Producer에서 주문 생성** → 양쪽 큐로 메시지 발송
-- ✅ **Consumer에서 주문 처리** → 완전한 비즈니스 로직 수행
-- ✅ **Consumer에서 처리 완료 이벤트** 발송
-- ✅ **SyncEventListener가 동기화 이벤트** 수신 및 처리
-- ✅ **Producer API 호출을 통한 데이터 동기화** 수행
+#### 1. **Producer-Consumer 패턴** (기본 Pub-Sub) ✅
+- **플로우**: `Producer → order-processing-queue → Consumer`
+- **목적**: 비동기 주문 처리
+- **검증 완료**: 메시지 발행/소비, 큐 상태 모니터링, 처리 결과 확인
 
-모든 테스트가 성공적으로 통과했으며, 실제 메시지 교환과 데이터 동기화가 정상적으로 작동함을 확인했습니다.
+#### 2. **이벤트 기반 동기화** (Event-Driven) ✅
+- **플로우**: 
+  - `Producer → sync-events-queue` (ORDER_UPDATED)
+  - `Consumer → sync-events-queue` (PROCESSING_COMPLETED)
+- **목적**: 시스템 간 상태 동기화 이벤트
+- **검증 완료**: 이벤트 발생/처리, 동기화 큐 모니터링, 이벤트 수명주기
+
+#### 3. **API 동기화 패턴** (Request-Response) ✅  
+- **플로우**: `Consumer → Producer REST API`
+- **목적**: 실시간 데이터 일관성 보장
+- **검증 완료**: API 헬스체크, 동기화 데이터 조회, 데이터 일관성 검증
+
+### 🔄 통합 메시징 아키텍처
+
+```
+    [주문 요청]
+        ↓
+    [Producer Service]
+        ↓
+        ├── 📨 order-processing-queue (Pub-Sub)
+        │       ↓
+        │   [Consumer Business Logic]
+        │       ↓
+        └── 🔄 sync-events-queue (Event-Driven)
+                ↓
+            [동기화 이벤트 처리]
+                ↓
+            🔗 Producer API 호출 (Request-Response)
+                ↓
+            [데이터 일관성 보장]
+```
+
+## 📊 전체 시스템 검증 완료
+
+### ✅ 메시징 패턴별 검증
+- **Pub-Sub**: 메시지 발행/소비, 큐 상태 모니터링 ✅
+- **Event-Driven**: 동기화 이벤트 발생/처리 ✅  
+- **Request-Response**: API 동기화 및 데이터 일관성 ✅
+
+### ✅ 전체 플로우 검증
+- ✅ **Producer에서 주문 생성** → 2개 큐로 메시지 발송
+- ✅ **Consumer Pub-Sub 처리** → 비동기 비즈니스 로직 수행
+- ✅ **Consumer 이벤트 발송** → PROCESSING_COMPLETED 이벤트
+- ✅ **동기화 이벤트 처리** → SyncEventListener 수신 및 처리
+- ✅ **API 동기화** → Producer API 호출을 통한 데이터 일관성 보장
+
+### ✅ 품질 보장
+- **12개 API 엔드포인트** 모든 시나리오 검증 완료
+- **에러 처리** (404, 400, validation) 정상 동작 확인
+- **한글/Unicode 지원** 정상 동작 확인
+- **대량 처리** 및 성능 검증 완료
+- **실시간 모니터링** 및 상태 추적 가능
+
+모든 메시징 패턴이 독립적으로 그리고 통합적으로 완벽하게 작동함을 확인했습니다.
 
 ---
 
